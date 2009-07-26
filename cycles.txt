@@ -39,12 +39,12 @@ L4 - Bit is a 0: low for 3us, high for 1us
 
 .L6 - end of outer loop body
 
- 2 cycles to save r18 into Z
+ 2 cycles to save r18 into Z (unnecessary)
  1 cycle to subtract 1 from r20 (must be length)
   1 cycle to continue below
   2 cycles to go to .L7 and exit the loop
 
- 2 cycles to add 1 to r30
+ 2 cycles to add 1 to r30 (Z pointer)
  2 cycles to jump to .L2 - top of outer loop bodys
 
 .L7 - end of loops, send a stop bit

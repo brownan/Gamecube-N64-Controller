@@ -16,3 +16,4 @@ subi	1
 st	2
 sbic	1/2/3
 sub	1
+adiw	2

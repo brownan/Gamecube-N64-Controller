@@ -183,7 +183,16 @@ inner_loop:
         for (bits=0; bits<8; ++bits)
         {
             // Loop while the line is high, exit the loop when it goes low
-            while (GC_QUERY) {}
+            // timeout after 3.75 milliseconds
+            unsigned int timeout=60000;
+            while (GC_QUERY) {
+                --timeout;
+                if (timeout == 0) {
+                    interrupts();
+                    Serial.println("Timed out waiting for a response");
+                    return;
+                }
+            }
 
             // wait 2us and poll again
             // 30 nops, subtract couple for good measure if the loop
@@ -211,6 +220,7 @@ inner_loop:
 
     // re-enable interrupts
     interrupts();
+    Serial.println("Done!");
 
 }
 
@@ -231,14 +241,13 @@ void loop()
 //  PORTB &= ~0x20; // DIO 13 LOW
   digitalWrite(13, HIGH); // Set led to on
   Serial.println("Getting GC status...");
-  unsigned char command[] = {0x00};
-  get_gc_status(false, command, 1);
-  Serial.println("Success!");
+  unsigned char command[] = {0x40, 0x03, 0x00};
+  get_gc_status(false, command, 3);
   print_gc_status();
 
   digitalWrite(13, LOW); // set led to off
   
   
-  delay(1000);
+  delay(5000);
 }
 
