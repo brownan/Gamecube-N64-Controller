@@ -45,8 +45,11 @@ void setup()
 }
 
 /**
- * This sends the magic poll byte 0x400302 to the controller,
+ * This sends the given byte sequence to the controller,
  * and dumps the response into gc_status
+ * buffer is a pointer to a byte array, length is the
+ * length of that byte array
+ * length must be at least 1
  */
 void get_gc_status(bool rumble, unsigned char *buffer, char length)
 {
@@ -60,17 +63,19 @@ void get_gc_status(bool rumble, unsigned char *buffer, char length)
     noInterrupts();
 
     // This routine is very carefully timed by examining the assembly output.
-    // Do not change any statements, it could through the timings off
+    // Do not change any statements, it could throw the timings off
     //
     // We get 16 cycles per microsecond, which should be plenty, but we need to
     // be conservative. Most assembly ops take 1 cycle, but a few take 2
+    //
+    // I use manually constructed for-loops out of gotos so I have more control
+    // over the outputted assembly. I can insert nops where it was impossible
+    // with a for loop
     
     asm volatile (";Starting outer for loop");
-    for (byte_index=0; byte_index < length; ++byte_index)
+outer_loop:
     {
         asm volatile (";Starting inner for loop");
-        // manual for-loop using gotos, so I can insert nops in places that
-        // weren't possible before
         bits=7;
 inner_loop:
         {
@@ -79,7 +84,7 @@ inner_loop:
             GC_LOW; // 1 op, 2 cycles
 
             asm volatile (";branching");
-            if (buffer[byte_index] >> 7) {
+            if (*buffer >> 7) {
                 asm volatile (";Bit is a 1");
                 // 1 bit
                 // remain low for 1us, then go high for 3us
@@ -131,22 +136,28 @@ inner_loop:
             // high for exactly 16 more cycles, regardless of the previous
             // if branch taken
 
-            // rotate bits
-            asm volatile (";rotating out bits");
-            buffer[byte_index] <<= 1;
-            asm volatile (";continuing inner loop");
+            asm volatile (";finishing inner loop body");
             --bits;
             if (bits != 0) {
                 // nop block 4
                 asm volatile ("nop\nnop\nnop\nnop\nnop\n"  
                               "nop\nnop\nnop\nnop\n");
+                // rotate bits
+                asm volatile (";rotating out bits");
+                *buffer <<= 1;
+
                 goto inner_loop;
-            }
+            } // fall out of inner loop
         }
         asm volatile (";continuing outer loop");
-        // there are /exactly/ 16 cycles since the end of the conditional above
-        // until the line goes low again in the case that the inner loop
-        // terminates and the outer loop continues.  so no nops are needed here
+        // there are /exactly/ 16 cycles from the end of the conditional above
+        // until the line goes low again in after we jump to outer_loop. so no
+        // nops are needed here
+        --length;
+        if (length != 0) {
+            ++buffer;
+            goto outer_loop;
+        } // fall out of outer loop
     }
 
     // send a single stop (1) bit

@@ -15,3 +15,4 @@ breq	1/2
 subi	1
 st	2
 sbic	1/2/3
+sub	1
