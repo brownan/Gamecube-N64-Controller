@@ -13,7 +13,7 @@
 // 8 bytes of data that we get from the controller
 char gc_status[8];
 
-void get_gc_status(bool rumble);
+void get_gc_status(bool rumble, unsigned char *buffer, char length);
 
 void setup()
 {
@@ -36,11 +36,9 @@ void setup()
 
   memset(gc_status, 0, 8);
 
-  /*
-  Serial.println("Getting status...\n");
-  get_gc_status(false);
-  Serial.println("\nDone\n");
-  */
+  Serial.println("Getting GC status...");
+  unsigned char command[] = {0x40, 0x03, 0x00};
+  get_gc_status(false, command, 3);
   
 }
 
@@ -76,7 +74,7 @@ void get_gc_status(bool rumble, unsigned char *buffer, char length)
 outer_loop:
     {
         asm volatile (";Starting inner for loop");
-        bits=7;
+        bits=8;
 inner_loop:
         {
             // Starting a bit, set the line low
@@ -237,6 +235,7 @@ void print_gc_status()
 
 void loop()
 {
+    return;
 //  PORTB |= 0x20; // DIO 13 HIGH
 //  PORTB &= ~0x20; // DIO 13 LOW
   digitalWrite(13, HIGH); // Set led to on
