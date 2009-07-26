@@ -48,10 +48,9 @@ void setup()
  * This sends the magic poll byte 0x400302 to the controller,
  * and dumps the response into gc_status
  */
-void get_gc_status(bool rumble)
+void get_gc_status(bool rumble, unsigned char *buffer, char length)
 {
     // Send these bytes
-    unsigned char buffer[] = {0x40, 0x03, 0x02};
     char bits;
     char byte_index;
     
@@ -67,7 +66,7 @@ void get_gc_status(bool rumble)
     // be conservative. Most assembly ops take 1 cycle, but a few take 2
     
     asm volatile (";Starting outer for loop");
-    for (byte_index=0; byte_index < 3; ++byte_index)
+    for (byte_index=0; byte_index < length; ++byte_index)
     {
         asm volatile (";Starting inner for loop");
         // manual for-loop using gotos, so I can insert nops in places that
@@ -150,6 +149,19 @@ inner_loop:
         // terminates and the outer loop continues.  so no nops are needed here
     }
 
+    // send a single stop (1) bit
+    // nop block 5
+    asm volatile ("nop\nnop\nnop\nnop\n");
+    GC_LOW;
+    // wait 1 us, 16 cycles, then raise the line 
+    // 16-2=14
+    // nop block 6
+    asm volatile ("nop\nnop\nnop\nnop\nnop\n"
+                  "nop\nnop\nnop\nnop\nnop\n"  
+                  "nop\nnop\nnop\nnop\n");
+    GC_HIGH;
+
+
     // Listening for an expected 8 bytes of data from the controller and put
     // them into gc_status, an 8 byte array.
     // we put the received bytes into the array backwards, so the first byte
@@ -163,6 +175,8 @@ inner_loop:
             while (GC_QUERY) {}
 
             // wait 2us and poll again
+            // 30 nops, subtract couple for good measure if the loop
+            // got started late, and cycles for querying the state
             asm volatile ("; waiting 2us and then polling for line state\n"
                           "nop\nnop\nnop\nnop\nnop\n"  
                           "nop\nnop\nnop\nnop\nnop\n"  
@@ -170,8 +184,8 @@ inner_loop:
                           "nop\nnop\nnop\nnop\nnop\n"  
                           "nop\nnop\nnop\nnop\nnop\n"  
                           "nop\nnop\nnop\nnop\nnop\n"  
-                          "nop\nnop\n"); 
-            bit = 0; // TODO
+                          ""); 
+            bit = (GC_QUERY);
 
             // push the bit into the buffer
             gc_status[byte_index] <<= 1;
@@ -192,9 +206,11 @@ inner_loop:
 void print_gc_status()
 {
     int i;
-    Serial.print("Gamecube Status: 0x");
-    for (i=0; i<8; ++i)
+    Serial.print("Gamecube Status:");
+    for (i=0; i<8; ++i){
+        Serial.print(" 0x");
         Serial.print(gc_status[i], HEX);
+    }
     Serial.println();
 }
 
@@ -203,19 +219,14 @@ void loop()
 //  PORTB |= 0x20; // DIO 13 HIGH
 //  PORTB &= ~0x20; // DIO 13 LOW
   digitalWrite(13, HIGH); // Set led to on
-
-  if (GC_QUERY)
-      Serial.println("HIGH");
-  else
-      Serial.println("LOW");
-  delay(1000);
+  Serial.println("Getting GC status...");
+  unsigned char command[] = {0x00};
+  get_gc_status(false, command, 1);
+  Serial.println("Success!");
+  print_gc_status();
 
   digitalWrite(13, LOW); // set led to off
   
-  if (GC_QUERY)
-      Serial.println("HIGH");
-  else
-      Serial.println("LOW");
   
   delay(1000);
 }

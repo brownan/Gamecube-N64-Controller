@@ -54,3 +54,15 @@ ___ - bit was a 1 conditional branch (low 1us, high 3us)
  2 cycles to compare (optimize if needed, why is it doing a word compare?)
   2 cycles to exit outer loop
   3 cycles to jump to .L7, top of outer loop body
+
+___ - end of transmit loop, send a stop bit
+
+ * nop block 5
+ * 6 cycles until the line is scheduled to go low
+
+ 2 cycles to lower the line
+
+ * nop block 6, wait 1us (16 cycles) and then raise the line (2 cycles)
+ * so 16 - 2 = 14 cycles
+
+
