@@ -70,8 +70,10 @@ void get_gc_status(bool rumble)
     for (byte_index=0; byte_index < 3; ++byte_index)
     {
         asm volatile (";Starting inner for loop");
-        // on loop iteration, delay 9 
-        for (bits=8; bits>0; --bits)
+        // manual for-loop using gotos, so I can insert nops in places that
+        // weren't possible before
+        bits=7;
+inner_loop:
         {
             // Starting a bit, set the line low
             asm volatile (";Setting line to low");
@@ -82,19 +84,16 @@ void get_gc_status(bool rumble)
                 asm volatile (";Bit is a 1");
                 // 1 bit
                 // remain low for 1us, then go high for 3us
-                // 8 cycles have gone by so far to get here
-                asm volatile ("; need to wait 1us here");
-                // 16 cycles in a us
-                // minus 8 that have gone by already
-                // minus 2 to for the GC_HIGH operation
-                // 6 nops:
-                asm volatile ("nop\nnop\nnop\nnop\nnop\nnop\n");
+                // 9 cycles have gone by so far to get here
+                // nop block 1
+                asm volatile ("nop\nnop\nnop\nnop\nnop\n");
                 
                 asm volatile (";Setting line to high");
                 GC_HIGH;
 
                 // wait for 3us
                 asm volatile ("; need to wait 3us here");
+                // nop block 2
                 // we'll wait only 2us to sync up with both conditions
                 // at the bottom of the if statement
                 // subtract 2 cycles for the jump
@@ -111,10 +110,8 @@ void get_gc_status(bool rumble)
                 asm volatile (";Bit is a 0");
                 // 0 bit
                 // remain low for 3us, then go high for 1us
-                // 9 cycles have gone by so far to get here
-                asm volatile ("; need to wait 3us here");
-                // 3us is 48 cycles, 9 have gone by, 2 for the GC_HIGH op
-                // 48 - 9 - 2 = 37
+                // 10 cycles have gone by so far to get here
+                // nop block 3
                 asm volatile ("nop\nnop\nnop\nnop\nnop\n"  
                               "nop\nnop\nnop\nnop\nnop\n"  
                               "nop\nnop\nnop\nnop\nnop\n"  
@@ -122,7 +119,7 @@ void get_gc_status(bool rumble)
                               "nop\nnop\nnop\nnop\nnop\n"  
                               "nop\nnop\nnop\nnop\nnop\n"  
                               "nop\nnop\nnop\nnop\nnop\n"  
-                              "nop\nnop");
+                              "nop\n");
 
                 asm volatile (";Setting line to high");
                 GC_HIGH;
@@ -139,8 +136,18 @@ void get_gc_status(bool rumble)
             asm volatile (";rotating out bits");
             buffer[byte_index] <<= 1;
             asm volatile (";continuing inner loop");
+            --bits;
+            if (bits != 0) {
+                // nop block 4
+                asm volatile ("nop\nnop\nnop\nnop\nnop\n"  
+                              "nop\nnop\nnop\nnop\n");
+                goto inner_loop;
+            }
         }
         asm volatile (";continuing outer loop");
+        // there are /exactly/ 16 cycles since the end of the conditional above
+        // until the line goes low again in the case that the inner loop
+        // terminates and the outer loop continues.  so no nops are needed here
     }
 
     // Listening for an expected 8 bytes of data from the controller and put

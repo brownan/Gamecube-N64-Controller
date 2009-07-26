@@ -1,0 +1,56 @@
+Code flow for transmit segment of get_gc_status
+
+.L7 - top of outer loop body
+
+ 3 cycles to set up inner for loop
+
+.L3 - top of inner loop body
+
+ 2 cycles to bring the line low
+
+ 7 cycles for condition setup
+  2 cycles for 1 bit condition, continue below
+  3 cycles for 0 bit, and jump to .L4
+
+___ - bit was a 1 conditional branch (low 1us, high 3us)
+
+ * nop block 1, 9 cycles since LOW, need
+ * 16-9-2=5 nops
+
+ 2 cycles to set the line high
+
+ * nop block 2
+ * want 16 cycles remaining after the jump to .L5
+ * 16*2 - 2 = 30 nops
+
+ 2 cycles to jump to .L5
+
+.L4 - bit was a 0 conditional branch (low 3us, high 1us)
+ 
+ * nop block 3
+ * 10 cycles since LOW, needs
+ * 3*16 - 10 - 2 = 36
+ * more cycles
+
+ 2 cycles to set the line to high
+
+.L5 - after the conditional, line needs to stay high for 16 more cycles
+
+ 1 cycle to rotate out bits
+ 1 cycle to subtract
+  1 cycle to continue below and eventually continue the inner loop
+  2 cycles to jump to .L6
+
+ * nop block 4
+ * after this block, line goes low in 4 cycles
+ * above this block, there were 3 cycles
+ * 16 - 4 - 3 = 9 nops
+
+ 2 cycles to jump to .L3, top of inner loop body
+
+.L6 - bottom of outer loop
+
+ 2 cycles to save r18 and increment Z pointer
+ 2 cycles to compare (optimize if needed, why is it doing a word compare?)
+  2 cycles to exit outer loop
+  3 cycles to jump to .L7, top of outer loop body
