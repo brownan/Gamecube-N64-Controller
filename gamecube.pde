@@ -11,7 +11,16 @@
 #define GC_QUERY (PIND & 0x04)
 
 // 8 bytes of data that we get from the controller
-char gc_status[8];
+struct {
+    unsigned char data1;
+    unsigned char data2;
+    char stick_x;
+    char stick_y;
+    char cstick_x;
+    char cstick_y;
+    char left;
+    char right;
+} gc_status;
 char gc_status_extended[66]; // 1 received bit per byte
 
 void get_gc_status(bool rumble, unsigned char *buffer, char length);
@@ -37,31 +46,46 @@ void setup()
   digitalWrite(GC_PIN, LOW);  
   pinMode(GC_PIN, INPUT);
 
-  memset(gc_status, 0, 8);
-
-  Serial.println("Getting GC status...");
-  unsigned char command[] = {0x40, 0x03, 0x00};
-  get_gc_status(false, command, 3);
-
-  translate_raw_data();
-
-  print_gc_status();
   
 }
 
 void translate_raw_data()
 {
+    // The get_gc_status function sloppily dumps its data 1 bit per byte
+    // into the get_status_extended char array. It's our job to go through
+    // that and put each piece neatly into the struct gc_status
     int bitpos=65;
-    int bit;
-    int byte;
-    memset(gc_status, 0, sizeof(gc_status));
-    for (byte=0; byte<3; ++byte)
-    {
-        for (bit=0; bit<8; ++bit)
-        {
-            gc_status[byte] |= (gc_status_extended[bitpos] ? 1<<bit : 0);
-            bitpos--;
-        }
+    int i;
+    memset(&gc_status, 0, sizeof(gc_status));
+    // line 1
+    // bits: 0, 0, 0, start, y, x, b a
+    for (i=0; i<8; i++) {
+        gc_status.data1 |= gc_status_extended[65-i] ? (0x80 >> i) : 0;
+    }
+    // line 2
+    // bits: 1, l, r, z, dup, ddown, dright, dleft
+    for (i=0; i<8; i++) {
+        gc_status.data2 |= gc_status_extended[65-8-i] ? (0x80 >> i) : 0;
+    }
+    // line 3
+    // bits: joystick x value
+    for (i=0; i<8; i++) {
+        gc_status.stick_x |= gc_status_extended[65-16-i] ? (0x80 >> i) : 0;
+    }
+    for (i=0; i<8; i++) {
+        gc_status.stick_y |= gc_status_extended[65-24-i] ? (0x80 >> i) : 0;
+    }
+    for (i=0; i<8; i++) {
+        gc_status.cstick_x |= gc_status_extended[65-32-i] ? (0x80 >> i) : 0;
+    }
+    for (i=0; i<8; i++) {
+        gc_status.cstick_y |= gc_status_extended[65-40-i] ? (0x80 >> i) : 0;
+    }
+    for (i=0; i<8; i++) {
+        gc_status.left |= gc_status_extended[65-48-i] ? (0x80 >> i) : 0;
+    }
+    for (i=0; i<8; i++) {
+        gc_status.right |= gc_status_extended[65-56-i] ? (0x80 >> i) : 0;
     }
 }
 
@@ -220,84 +244,68 @@ inner_loop:
         }
         --timeout;
     }
-    Serial.println("Data buffer filled up");
-
-#if 0
-    for (byte_index=0; byte_index<8; ++byte_index)
-    {
-        for (bits=0; bits<8; ++bits)
-        {
-            // Loop while the line is high, exit the loop when it goes low
-            // timeout after 3.75 milliseconds
-            //unsigned int timeout=60000;
-            while (GC_QUERY) {
-                /*
-                --timeout;
-                if (timeout == 0) {
-                    interrupts();
-                    Serial.println("Timed out waiting for a response");
-                    return;
-                }
-                */
-            }
-
-            // wait 2us and poll again
-            // 30 nops, subtract couple for good measure if the loop
-            // got started late, and cycles for querying the state
-            asm volatile ("; waiting 2us and then polling for line state\n"
-                          "nop\nnop\nnop\nnop\nnop\n"  
-                          "nop\nnop\nnop\nnop\nnop\n"  
-                          "nop\nnop\nnop\nnop\nnop\n"  
-                          "nop\nnop\nnop\nnop\nnop\n"  
-                          "nop\nnop\nnop\nnop\nnop\n"  
-                          "nop\nnop\nnop\nnop\nnop\n"  
-                          ""); 
-            bit = (GC_QUERY != 0);
-            Serial.println(bit, DEC);
-
-            // push the bit into the buffer
-            gc_status[byte_index] <<= 1;
-            gc_status[byte_index] &= bit;
-
-            // wait for the line to go high again. we know how long this is
-            // going to be (2us), but it makes it easier to drop back into the top of
-            // the loop when the line is high
-            while (!GC_QUERY){}
-        }
-    }
-#endif
 
     // re-enable interrupts
     interrupts();
-    Serial.println("Done!");
 
 }
 
 void print_gc_status()
 {
     int i;
-    Serial.print("Gamecube Status:");
-    for (i=0; i<8; ++i){
-        Serial.print(" 0x");
-        Serial.print(gc_status[i], HEX);
-    }
-    Serial.println();
+    Serial.print("Start: ");
+    Serial.println(gc_status.data1 & 0x10 ? 1:0);
+
+    Serial.print("Y:     ");
+    Serial.println(gc_status.data1 & 0x08 ? 1:0);
+
+    Serial.print("X:     ");
+    Serial.println(gc_status.data1 & 0x04 ? 1:0);
+
+    Serial.print("B:     ");
+    Serial.println(gc_status.data1 & 0x02 ? 1:0);
+
+    Serial.print("A:     ");
+    Serial.println(gc_status.data1 & 0x01 ? 1:0);
+
+    Serial.print("L:     ");
+    Serial.println(gc_status.data2 & 0x40 ? 1:0);
+    Serial.print("R:     ");
+    Serial.println(gc_status.data2 & 0x20 ? 1:0);
+    Serial.print("Z:     ");
+    Serial.println(gc_status.data2 & 0x10 ? 1:0);
+
+    Serial.print("Dup:   ");
+    Serial.println(gc_status.data2 & 0x08 ? 1:0);
+    Serial.print("Ddown: ");
+    Serial.println(gc_status.data2 & 0x04 ? 1:0);
+    Serial.print("Dright:");
+    Serial.println(gc_status.data2 & 0x02 ? 1:0);
+    Serial.print("Dleft: ");
+    Serial.println(gc_status.data2 & 0x01 ? 1:0);
+
+    Serial.print("Stick X:");
+    Serial.println(gc_status.stick_x);
+    Serial.print("Stick Y:");
+    Serial.println(gc_status.stick_y);
 }
 
 void loop()
 {
-    return;
-//  PORTB |= 0x20; // DIO 13 HIGH
-//  PORTB &= ~0x20; // DIO 13 LOW
   digitalWrite(13, HIGH); // Set led to on
-  Serial.println("Getting GC status...");
+
+  memset(gc_status_extended, 0, sizeof(gc_status_extended));
+
   unsigned char command[] = {0x40, 0x03, 0x00};
   get_gc_status(false, command, 3);
+
+  translate_raw_data();
+
   print_gc_status();
 
   digitalWrite(13, LOW); // set led to off
   
   
-  delay(5000);
+  delay(1000);
 }
 
