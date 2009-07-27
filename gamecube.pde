@@ -12,8 +12,11 @@
 
 // 8 bytes of data that we get from the controller
 char gc_status[8];
+char gc_status_extended[66]; // 1 received bit per byte
 
 void get_gc_status(bool rumble, unsigned char *buffer, char length);
+void print_gc_status();
+void translate_raw_data();
 
 void setup()
 {
@@ -39,7 +42,27 @@ void setup()
   Serial.println("Getting GC status...");
   unsigned char command[] = {0x40, 0x03, 0x00};
   get_gc_status(false, command, 3);
+
+  translate_raw_data();
+
+  print_gc_status();
   
+}
+
+void translate_raw_data()
+{
+    int bitpos=65;
+    int bit;
+    int byte;
+    memset(gc_status, 0, sizeof(gc_status));
+    for (byte=0; byte<3; ++byte)
+    {
+        for (bit=0; bit<8; ++bit)
+        {
+            gc_status[byte] |= (gc_status_extended[bitpos] ? 1<<bit : 0);
+            bitpos--;
+        }
+    }
 }
 
 /**
@@ -176,20 +199,46 @@ inner_loop:
     // we put the received bytes into the array backwards, so the first byte
     // goes into slot 0.
     asm volatile (";Starting to listen");
+    unsigned int timeout = 60000;
+    bits = 65;
+    while (timeout > 0 && bits >= 0)
+    {
+        if (!GC_QUERY) {
+            // line went low
+            asm volatile ("; waiting 2us and then polling for line state\n"
+                          "nop\nnop\nnop\nnop\nnop\n"  
+                          "nop\nnop\nnop\nnop\nnop\n"  
+                          "nop\nnop\nnop\nnop\nnop\n"  
+                          "nop\nnop\nnop\nnop\nnop\n"  
+                          "nop\nnop\nnop\nnop\nnop\n"  
+                          "nop\nnop\nnop\nnop\nnop\n"  
+                          ""); 
+            gc_status_extended[bits] = GC_QUERY;
+            --bits;
+
+            while (!GC_QUERY) {} // wait to go high
+        }
+        --timeout;
+    }
+    Serial.println("Data buffer filled up");
+
+#if 0
     for (byte_index=0; byte_index<8; ++byte_index)
     {
         for (bits=0; bits<8; ++bits)
         {
             // Loop while the line is high, exit the loop when it goes low
             // timeout after 3.75 milliseconds
-            unsigned int timeout=60000;
+            //unsigned int timeout=60000;
             while (GC_QUERY) {
+                /*
                 --timeout;
                 if (timeout == 0) {
                     interrupts();
                     Serial.println("Timed out waiting for a response");
                     return;
                 }
+                */
             }
 
             // wait 2us and poll again
@@ -203,7 +252,8 @@ inner_loop:
                           "nop\nnop\nnop\nnop\nnop\n"  
                           "nop\nnop\nnop\nnop\nnop\n"  
                           ""); 
-            bit = (GC_QUERY);
+            bit = (GC_QUERY != 0);
+            Serial.println(bit, DEC);
 
             // push the bit into the buffer
             gc_status[byte_index] <<= 1;
@@ -215,6 +265,7 @@ inner_loop:
             while (!GC_QUERY){}
         }
     }
+#endif
 
     // re-enable interrupts
     interrupts();
