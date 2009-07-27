@@ -91,7 +91,7 @@ void translate_raw_data()
 
 /**
  * This sends the given byte sequence to the controller,
- * and dumps the response into gc_status
+ * and dumps the response into gc_status_extended
  * buffer is a pointer to a byte array, length is the
  * length of that byte array
  * length must be at least 1
@@ -133,20 +133,15 @@ inner_loop:
                 asm volatile (";Bit is a 1");
                 // 1 bit
                 // remain low for 1us, then go high for 3us
-                // 9 cycles have gone by so far to get here
                 // nop block 1
                 asm volatile ("nop\nnop\nnop\nnop\nnop\n");
                 
                 asm volatile (";Setting line to high");
                 GC_HIGH;
 
-                // wait for 3us
-                asm volatile ("; need to wait 3us here");
                 // nop block 2
                 // we'll wait only 2us to sync up with both conditions
                 // at the bottom of the if statement
-                // subtract 2 cycles for the jump
-                // 32 - 2 = 30
                 asm volatile ("nop\nnop\nnop\nnop\nnop\n"  
                               "nop\nnop\nnop\nnop\nnop\n"  
                               "nop\nnop\nnop\nnop\nnop\n"  
@@ -159,7 +154,6 @@ inner_loop:
                 asm volatile (";Bit is a 0");
                 // 0 bit
                 // remain low for 3us, then go high for 1us
-                // 10 cycles have gone by so far to get here
                 // nop block 3
                 asm volatile ("nop\nnop\nnop\nnop\nnop\n"  
                               "nop\nnop\nnop\nnop\nnop\n"  
@@ -179,7 +173,7 @@ inner_loop:
             }
             // end of the if, the line is high and needs to remain
             // high for exactly 16 more cycles, regardless of the previous
-            // if branch taken
+            // branch path
 
             asm volatile (";finishing inner loop body");
             --bits;
@@ -195,9 +189,9 @@ inner_loop:
             } // fall out of inner loop
         }
         asm volatile (";continuing outer loop");
-        // there are /exactly/ 16 cycles from the end of the conditional above
-        // until the line goes low again in after we jump to outer_loop. so no
-        // nops are needed here
+        // In this case: the inner loop exits and the outer loop iterates,
+        // there are /exactly/ 16 cycles taken up by the necessary operations.
+        // So no nops are needed here (that was lucky!)
         --length;
         if (length != 0) {
             ++buffer;
@@ -302,18 +296,18 @@ void print_gc_status()
 
 void loop()
 {
-  digitalWrite(13, HIGH); // Set led to on
 
   memset(gc_status_extended, 0, sizeof(gc_status_extended));
 
   unsigned char command[] = {0x40, 0x03, 0x00};
+  digitalWrite(13, HIGH); // Set led to on
   get_gc_status(false, command, 3);
+  digitalWrite(13, LOW); // set led to off
 
   translate_raw_data();
 
   print_gc_status();
 
-  digitalWrite(13, LOW); // set led to off
   
   
   delay(1000);
