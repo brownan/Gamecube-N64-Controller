@@ -288,6 +288,16 @@ void print_gc_status()
     Serial.println(gc_status.stick_x, DEC);
     Serial.print("Stick Y:");
     Serial.println(gc_status.stick_y, DEC);
+
+    Serial.print("cStick X:");
+    Serial.println(gc_status.cstick_x, DEC);
+    Serial.print("cStick Y:");
+    Serial.println(gc_status.cstick_y, DEC);
+
+    Serial.print("L:     ");
+    Serial.println(gc_status.left, DEC);
+    Serial.print("R:     ");
+    Serial.println(gc_status.right, DEC);
 }
 
 void loop()
