@@ -285,9 +285,9 @@ void print_gc_status()
     Serial.println(gc_status.data2 & 0x01 ? 1:0);
 
     Serial.print("Stick X:");
-    Serial.println(gc_status.stick_x);
+    Serial.println(gc_status.stick_x, DEC);
     Serial.print("Stick Y:");
-    Serial.println(gc_status.stick_y);
+    Serial.println(gc_status.stick_y, DEC);
 }
 
 void loop()
