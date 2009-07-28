@@ -18,8 +18,8 @@ struct {
     char stick_y;
     char cstick_x;
     char cstick_y;
-    char left;
-    char right;
+    unsigned char left;
+    unsigned char right;
 } gc_status;
 char gc_raw_dump[65]; // 1 received bit per byte
 
@@ -71,7 +71,7 @@ void translate_raw_data()
     // bits: joystick x value
     // these are signed values, but what format? I'm guessing
     // one's complement, because the values I get look strange
-    // when viewed directly
+    // when viewed directly (most things are two's complement)
     for (i=0; i<8; i++) {
         gc_status.stick_x |= gc_raw_dump[16+i] ? (0x80 >> i) : 0;
     }
