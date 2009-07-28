@@ -12,21 +12,27 @@
 
 // 8 bytes of data that we get from the controller
 struct {
+    // bits: 0, 0, 0, start, y, x, b, a
     unsigned char data1;
+    // bits: 1, L, R, Z, Dup, Ddown, Dright, Dleft
     unsigned char data2;
-    char stick_x;
-    char stick_y;
-    char cstick_x;
-    char cstick_y;
+    unsigned char stick_x;
+    unsigned char stick_y;
+    unsigned char cstick_x;
+    unsigned char cstick_y;
     unsigned char left;
     unsigned char right;
 } gc_status;
 char gc_raw_dump[65]; // 1 received bit per byte
 
+// bytes to send to the 64
+unsigned char n64_buffer[4];
+
 void gc_send(unsigned char *buffer, char length);
 void gc_get();
 void print_gc_status();
 void translate_raw_data();
+void gc_to_64();
 
 void setup()
 {
@@ -69,9 +75,7 @@ void translate_raw_data()
     }
     // line 3
     // bits: joystick x value
-    // these are signed values, but what format? I'm guessing
-    // one's complement, because the values I get look strange
-    // when viewed directly (most things are two's complement)
+    // These are 8 bit values centered at 0x80 (128)
     for (i=0; i<8; i++) {
         gc_status.stick_x |= gc_raw_dump[16+i] ? (0x80 >> i) : 0;
     }
@@ -93,8 +97,63 @@ void translate_raw_data()
 }
 
 /**
+ * Reads from the gc_status struct and builds a 32 bit array ready to send to
+ * the N64 when it queries us.  This is stored in n64_buffer[]
+ * This function is where the translation happens from gamecube buttons to N64
+ * buttons
+ */
+void gc_to_64()
+{
+    // clear it out
+    memset(gc_raw_dump, 0, sizeof(gc_raw_dump));
+
+    // First byte in n64_buffer should contain:
+    // A, B, Z, Start, Dup, Ddown, Dleft, Dright
+    //                                                GC -> 64
+    n64_buffer[0] |= (gc_status.data1 & 0x01) << 7; // A -> A
+    n64_buffer[0] |= (gc_status.data1 & 0x02) << 5; // B -> B
+    n64_buffer[0] |= (gc_status.data2 & 0x40) >> 1; // L -> Z
+    n64_buffer[0] |= (gc_status.data1 & 0x10)     ; // S -> S
+    n64_buffer[0] |= (gc_status.data1 & 0x0F)     ; // D pad
+
+    // Second byte:
+    // 0, 0, L, R, Cup, Cdown, Cleft, Cright
+    n64_buffer[1] |= (gc_status.data2 & 0x10) << 1; // Z -> L (who uses N64's L?)
+    n64_buffer[1] |= (gc_status.data2 & 0x20) >> 1; // R -> R
+
+    // C buttons are tricky, translate the C stick values to determine which C
+    // buttons are "pressed"
+    // Analog sticks are a value 0-255 with the center at 128 the maximum and
+    // minimum values seemed to vary a bit, but we only need to choose a
+    // threshold here
+    if (gc_status.cstick_x < 0x50) {
+        // C-left
+        n64_buffer[1] |= 0x02;
+    }
+    if (gc_status.cstick_x > 0xB0) {
+        // C-right
+        n64_buffer[1] |= 0x01;
+    }
+    if (gc_status.cstick_y < 0x50) {
+        // C-down
+        n64_buffer[1] |= 0x04;
+    }
+    if (gc_status.cstick_y > 0xB0) {
+        // C-up
+        n64_buffer[1] |= 0x08;
+    }
+
+    // Third byte: Control Stick X position
+    n64_buffer[2] = 0x80 - gc_status.stick_x;
+    
+    // Fourth byte: Control Stick Y Position
+    n64_buffer[3] = 0x80 - gc_status.stick_y;
+}
+
+/**
  * This sends the given byte sequence to the controller
  * length must be at least 1
+ * Oh, it destroys the buffer passed in as it writes it
  */
 void gc_send(unsigned char *buffer, char length)
 {
@@ -176,6 +235,7 @@ inner_loop:
             --bits;
             if (bits != 0) {
                 // nop block 4
+                // this block is why a for loop was impossible
                 asm volatile ("nop\nnop\nnop\nnop\nnop\n"  
                               "nop\nnop\nnop\nnop\n");
                 // rotate bits
@@ -291,7 +351,7 @@ void print_gc_status()
     Serial.println(gc_status.data2 & 0x01 ? 1:0);
 
     Serial.print("Stick X:");
-    Serial.println(gc_status.stick_x, DEC);
+    Serial.println(-~gc_status.stick_x, DEC);
     Serial.print("Stick Y:");
     Serial.println(gc_status.stick_y, DEC);
 
