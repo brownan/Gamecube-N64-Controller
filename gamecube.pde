@@ -60,7 +60,8 @@ void setup()
   digitalWrite(GC_PIN, LOW);  
   pinMode(GC_PIN, INPUT);
 
-  // Input on the N64 data pin
+  // Communication with the N64 on this pin
+  digitalWrite(N64_PIN, LOW);
   pinMode(N64_PIN, INPUT);
 
   
@@ -130,6 +131,13 @@ void gc_to_64()
     // 0, 0, L, R, Cup, Cdown, Cleft, Cright
     n64_buffer[1] |= (gc_status.data2 & 0x10) << 1; // Z -> L (who uses N64's L?)
     n64_buffer[1] |= (gc_status.data2 & 0x20) >> 1; // R -> R
+
+    // Optional, map the X and Y buttons to something
+    // Here I chose Cleft and Cdown, since they're in relatively the same
+    // location (relative to the A button), and they mean something special
+    // in starfox.
+    n64_buffer[1] |= (gc_status.data1 & 0x08) >> 1; // Y -> Cleft
+    n64_buffer[1] |= (gc_status.data1 & 0x04)     ; // X -> Cdown
 
     // C buttons are tricky, translate the C stick values to determine which C
     // buttons are "pressed"
@@ -476,7 +484,8 @@ read_more:
             // we expect a 2 byte address
             bitcount = 16;
         }
-        // make sure the line is high
+        // make sure the line is high. Hopefully we didn't already
+        // miss the high-to-low transition
         while (!N64_QUERY) {}
 read_loop2:
         // wait for the line to go low
@@ -500,4 +509,5 @@ read_loop2:
         // wait for line to go high again
         while (!N64_QUERY) {}
         goto read_loop2;
+    }
 }
