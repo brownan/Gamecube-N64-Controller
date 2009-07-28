@@ -319,6 +319,7 @@ read_loop:
 void print_gc_status()
 {
     int i;
+    Serial.println();
     Serial.print("Start: ");
     Serial.println(gc_status.data1 & 0x10 ? 1:0);
 
@@ -366,17 +367,18 @@ void print_gc_status()
     Serial.println(gc_status.right, DEC);
 }
 
+// Command to send to the gamecube
+// The last bit is rumble, flip it to rumble
+unsigned char command[] = {0x40, 0x03, 0x00};
+
 void loop()
 {
 
-    // clear out raw data buffer
+    // clear out incomming raw data buffer
     memset(gc_raw_dump, 0, sizeof(gc_raw_dump));
 
-    // we write the status command to the controller:
-    unsigned char command[] = {0x40, 0x03, 0x00};
-
     // turn on the led, so we can visually see things are happening
-    digitalWrite(13, HIGH); // Set led to on
+    digitalWrite(13, HIGH);
     // don't want interrupts getting in the way
     noInterrupts();
     // send those 3 bytes
@@ -385,12 +387,18 @@ void loop()
     gc_get();
     // end of time sensitive code
     interrupts();
-    digitalWrite(13, LOW); // set led to off
+    digitalWrite(13, LOW);
 
     // translate the data in gc_raw_dump to something useful
     translate_raw_data();
+    // Now translate /that/ data to the n64 byte string
+    gc_to_64();
 
-    // and print it
+    // TODO: Wait for incomming 64 command
+
+    // TODO: Send a response to the 64
+
+    // DEBUG: print it
     print_gc_status();
 
   
