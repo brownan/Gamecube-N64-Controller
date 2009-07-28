@@ -367,15 +367,18 @@ void print_gc_status()
     Serial.println(gc_status.right, DEC);
 }
 
-// Command to send to the gamecube
-// The last bit is rumble, flip it to rumble
-unsigned char command[] = {0x40, 0x03, 0x00};
 
 void loop()
 {
 
     // clear out incomming raw data buffer
     memset(gc_raw_dump, 0, sizeof(gc_raw_dump));
+
+    // Command to send to the gamecube
+    // The last bit is rumble, flip it to rumble
+    // yes this does need to be inside the loop, the
+    // array gets mutilated when it goes through gc_send
+    unsigned char command[] = {0x40, 0x03, 0x00};
 
     // turn on the led, so we can visually see things are happening
     digitalWrite(13, HIGH);
