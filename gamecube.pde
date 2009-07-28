@@ -10,6 +10,11 @@
 #define GC_LOW DDRD |= 0x04
 #define GC_QUERY (PIND & 0x04)
 
+#define N64_PIN 8
+#define N64_HIGH DDRB &= ~0x01
+#define N64_LOW DDRB |= 0x01
+#define N64_QUERY (PINB & 0x01)
+
 // 8 bytes of data that we get from the controller
 struct {
     // bits: 0, 0, 0, start, y, x, b, a
@@ -24,6 +29,7 @@ struct {
     unsigned char right;
 } gc_status;
 char gc_raw_dump[65]; // 1 received bit per byte
+char n64_raw_dump[35];
 
 // bytes to send to the 64
 unsigned char n64_buffer[4];
@@ -33,16 +39,17 @@ void gc_get();
 void print_gc_status();
 void translate_raw_data();
 void gc_to_64();
+void get_n64_command();
 
 void setup()
 {
   Serial.begin(9600);
 
   Serial.print("bit: 0x");
-  Serial.println(digitalPinToBitMask(GC_PIN), HEX);
+  Serial.println(digitalPinToBitMask(N64_PIN), HEX);
   
   Serial.print("port: 0x");
-  Serial.println(digitalPinToPort(GC_PIN), HEX);
+  Serial.println(digitalPinToPort(N64_PIN), HEX);
 
   // Status LED
   digitalWrite(13, LOW);
@@ -52,6 +59,9 @@ void setup()
   // Don't remove these lines, we don't want to push +5V to the controller
   digitalWrite(GC_PIN, LOW);  
   pinMode(GC_PIN, INPUT);
+
+  // Input on the N64 data pin
+  pinMode(N64_PIN, INPUT);
 
   
 }
@@ -352,7 +362,7 @@ void print_gc_status()
     Serial.println(gc_status.data2 & 0x01 ? 1:0);
 
     Serial.print("Stick X:");
-    Serial.println(-~gc_status.stick_x, DEC);
+    Serial.println(gc_status.stick_x, DEC);
     Serial.print("Stick Y:");
     Serial.println(gc_status.stick_y, DEC);
 
@@ -397,7 +407,9 @@ void loop()
     // Now translate /that/ data to the n64 byte string
     gc_to_64();
 
-    // TODO: Wait for incomming 64 command
+    // Wait for incomming 64 command
+    // this will block until the N64 sends us a command
+    get_n64_command();
 
     // TODO: Send a response to the 64
 
@@ -409,3 +421,83 @@ void loop()
   delay(1000);
 }
 
+/**
+  * Waits for an incomming signal on the N64 pin and reads a single
+  * byte.
+  * 0x00 is an identify request
+  * 0x01 is a status request
+  * 0x02 is a controller pack read
+  * 0x03 is a controller pack write
+  *
+  * for 0x02 and 0x03, additional data is passed in after the command byte,
+  * which is also read by this function.
+  *
+  * All data is raw dumped to the n64_raw_dump array, 1 bit per byte
+  */
+void get_n64_command()
+{
+    char bitcount=8;
+    char *bitbin = n64_raw_dump;
+
+    bitcount = 8;
+read_loop:
+        // wait for the line to go low
+        while (N64_QUERY){}
+
+        // wait approx 2us and poll the line
+        asm volatile (
+                      "nop\nnop\nnop\nnop\nnop\n"  
+                      "nop\nnop\nnop\nnop\nnop\n"  
+                      "nop\nnop\nnop\nnop\nnop\n"  
+                      "nop\nnop\nnop\nnop\nnop\n"  
+                      "nop\nnop\nnop\nnop\nnop\n"  
+                      "nop\nnop\nnop\nnop\nnop\n"  
+                );
+        *bitbin = N64_QUERY;
+        ++bitbin;
+        --bitcount;
+        if (bitcount == 0)
+            goto read_more;
+
+        // wait for line to go high again
+        // I don't want this to execute if the loop is exiting, so
+        // I couldn't use a traditional for-loop
+        while (!N64_QUERY) {}
+        goto read_loop;
+
+read_more:
+    if (bitbin[6]) {
+        // 2 bit is on, we need to read more
+        if (bitbin[7]) {
+            // 1 bit is also on, the command is 0x03
+            // we expect a 2 byte address and 32 bytes of data
+            bitcount = 272; // 34 bytes * 8 bits per byte
+        } else {
+            // we expect a 2 byte address
+            bitcount = 16;
+        }
+        // make sure the line is high
+        while (!N64_QUERY) {}
+read_loop2:
+        // wait for the line to go low
+        while (N64_QUERY){}
+
+        // wait approx 2us and poll the line
+        asm volatile (
+                      "nop\nnop\nnop\nnop\nnop\n"  
+                      "nop\nnop\nnop\nnop\nnop\n"  
+                      "nop\nnop\nnop\nnop\nnop\n"  
+                      "nop\nnop\nnop\nnop\nnop\n"  
+                      "nop\nnop\nnop\nnop\nnop\n"  
+                      "nop\nnop\nnop\nnop\nnop\n"  
+                );
+        *bitbin = N64_QUERY;
+        ++bitbin;
+        --bitcount;
+        if (bitcount == 0)
+            return;
+
+        // wait for line to go high again
+        while (!N64_QUERY) {}
+        goto read_loop2;
+}
