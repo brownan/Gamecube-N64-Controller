@@ -21,12 +21,10 @@ struct {
     char left;
     char right;
 } gc_status;
-char gc_status_extended[66]; // 1 received bit per byte
-// I mysteriously seemed to get an extra bit, maybe my timings were off
-// somewhere, but this seemed to produce accurate results. That's why
-// this array is 66 and not the expected 65 (8 bytes + 1 stop bit)
+char gc_raw_dump[65]; // 1 received bit per byte
 
-void get_gc_status(unsigned char *buffer, char length);
+void gc_send(unsigned char *buffer, char length);
+void gc_get();
 void print_gc_status();
 void translate_raw_data();
 
@@ -62,54 +60,49 @@ void translate_raw_data()
     // line 1
     // bits: 0, 0, 0, start, y, x, b a
     for (i=0; i<8; i++) {
-        gc_status.data1 |= gc_status_extended[65-i] ? (0x80 >> i) : 0;
+        gc_status.data1 |= gc_raw_dump[i] ? (0x80 >> i) : 0;
     }
     // line 2
     // bits: 1, l, r, z, dup, ddown, dright, dleft
     for (i=0; i<8; i++) {
-        gc_status.data2 |= gc_status_extended[65-8-i] ? (0x80 >> i) : 0;
+        gc_status.data2 |= gc_raw_dump[8+i] ? (0x80 >> i) : 0;
     }
     // line 3
     // bits: joystick x value
+    // these are signed values, but what format? I'm guessing
+    // one's complement, because the values I get look strange
+    // when viewed directly
     for (i=0; i<8; i++) {
-        gc_status.stick_x |= gc_status_extended[65-16-i] ? (0x80 >> i) : 0;
-    }
-    gc_status.stick_x ^= 0xff;
-    for (i=0; i<8; i++) {
-        gc_status.stick_y |= gc_status_extended[65-24-i] ? (0x80 >> i) : 0;
-    }
-    gc_status.stick_y ^= 0xff;
-    for (i=0; i<8; i++) {
-        gc_status.cstick_x |= gc_status_extended[65-32-i] ? (0x80 >> i) : 0;
+        gc_status.stick_x |= gc_raw_dump[16+i] ? (0x80 >> i) : 0;
     }
     for (i=0; i<8; i++) {
-        gc_status.cstick_y |= gc_status_extended[65-40-i] ? (0x80 >> i) : 0;
+        gc_status.stick_y |= gc_raw_dump[24+i] ? (0x80 >> i) : 0;
     }
     for (i=0; i<8; i++) {
-        gc_status.left |= gc_status_extended[65-48-i] ? (0x80 >> i) : 0;
+        gc_status.cstick_x |= gc_raw_dump[32+i] ? (0x80 >> i) : 0;
     }
     for (i=0; i<8; i++) {
-        gc_status.right |= gc_status_extended[65-56-i] ? (0x80 >> i) : 0;
+        gc_status.cstick_y |= gc_raw_dump[40+i] ? (0x80 >> i) : 0;
+    }
+    for (i=0; i<8; i++) {
+        gc_status.left |= gc_raw_dump[48+i] ? (0x80 >> i) : 0;
+    }
+    for (i=0; i<8; i++) {
+        gc_status.right |= gc_raw_dump[56+i] ? (0x80 >> i) : 0;
     }
 }
 
 /**
- * This sends the given byte sequence to the controller,
- * and dumps the response into gc_status_extended
- * buffer is a pointer to a byte array, length is the
- * length of that byte array
+ * This sends the given byte sequence to the controller
  * length must be at least 1
  */
-void get_gc_status(unsigned char *buffer, char length)
+void gc_send(unsigned char *buffer, char length)
 {
     // Send these bytes
     char bits;
     char byte_index;
     
     bool bit;
-
-    // Turn off interrupts
-    noInterrupts();
 
     // This routine is very carefully timed by examining the assembly output.
     // Do not change any statements, it could throw the timings off
@@ -215,36 +208,51 @@ inner_loop:
                   "nop\nnop\nnop\nnop\n");
     GC_HIGH;
 
+}
 
+void gc_get()
+{
     // Listening for an expected 8 bytes of data from the controller and put
     // them into gc_status, an 8 byte array.
     // we put the received bytes into the array backwards, so the first byte
     // goes into slot 0.
     asm volatile (";Starting to listen");
-    unsigned int timeout = 60000;
-    bits = 65;
-    while (timeout > 0 && bits >= 0)
-    {
-        if (!GC_QUERY) {
-            // line went low
-            asm volatile ("; waiting 2us and then polling for line state\n"
-                          "nop\nnop\nnop\nnop\nnop\n"  
-                          "nop\nnop\nnop\nnop\nnop\n"  
-                          "nop\nnop\nnop\nnop\nnop\n"  
-                          "nop\nnop\nnop\nnop\nnop\n"  
-                          "nop\nnop\nnop\nnop\nnop\n"  
-                          "nop\nnop\nnop\nnop\nnop\n"  
-                          ""); 
-            gc_status_extended[bits] = GC_QUERY;
-            --bits;
+    unsigned char timeout;
+    char bitcount = 64;
+    char *bitbin = gc_raw_dump;
 
-            while (!GC_QUERY) {} // wait to go high
-        }
-        --timeout;
+    // Again, using gotos here to make the assembly more predictable and
+    // optimization easier (please don't kill me)
+read_loop:
+    timeout = 0x3f;
+    // wait for line to go low
+    while (GC_QUERY) {
+        if (!--timeout)
+            return;
     }
+    // wait approx 2us and poll the line
+    asm volatile (
+                  "nop\nnop\nnop\nnop\nnop\n"  
+                  "nop\nnop\nnop\nnop\nnop\n"  
+                  "nop\nnop\nnop\nnop\nnop\n"  
+                  "nop\nnop\nnop\nnop\nnop\n"  
+                  "nop\nnop\nnop\nnop\nnop\n"  
+                  "nop\nnop\nnop\nnop\nnop\n"  
+            );
+    *bitbin = GC_QUERY;
+    ++bitbin;
+    --bitcount;
+    if (bitcount == 0)
+        return;
 
-    // re-enable interrupts
-    interrupts();
+    // wait for line to go high again
+    // it may already be high, so this should just drop through
+    timeout = 0x3f;
+    while (!GC_QUERY) {
+        if (!--timeout)
+            return;
+    }
+    goto read_loop;
 
 }
 
@@ -301,16 +309,29 @@ void print_gc_status()
 void loop()
 {
 
-  memset(gc_status_extended, 0, sizeof(gc_status_extended));
+    // clear out raw data buffer
+    memset(gc_raw_dump, 0, sizeof(gc_raw_dump));
 
-  unsigned char command[] = {0x40, 0x03, 0x00};
-  digitalWrite(13, HIGH); // Set led to on
-  get_gc_status(command, 3);
-  digitalWrite(13, LOW); // set led to off
+    // we write the status command to the controller:
+    unsigned char command[] = {0x40, 0x03, 0x00};
 
-  translate_raw_data();
+    // turn on the led, so we can visually see things are happening
+    digitalWrite(13, HIGH); // Set led to on
+    // don't want interrupts getting in the way
+    noInterrupts();
+    // send those 3 bytes
+    gc_send(command, 3);
+    // read in data and dump it to gc_raw_dump
+    gc_get();
+    // end of time sensitive code
+    interrupts();
+    digitalWrite(13, LOW); // set led to off
 
-  print_gc_status();
+    // translate the data in gc_raw_dump to something useful
+    translate_raw_data();
+
+    // and print it
+    print_gc_status();
 
   
   
