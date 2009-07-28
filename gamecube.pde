@@ -22,8 +22,11 @@ struct {
     char right;
 } gc_status;
 char gc_status_extended[66]; // 1 received bit per byte
+// I mysteriously seemed to get an extra bit, maybe my timings were off
+// somewhere, but this seemed to produce accurate results. That's why
+// this array is 66 and not the expected 65 (8 bytes + 1 stop bit)
 
-void get_gc_status(bool rumble, unsigned char *buffer, char length);
+void get_gc_status(unsigned char *buffer, char length);
 void print_gc_status();
 void translate_raw_data();
 
@@ -54,7 +57,6 @@ void translate_raw_data()
     // The get_gc_status function sloppily dumps its data 1 bit per byte
     // into the get_status_extended char array. It's our job to go through
     // that and put each piece neatly into the struct gc_status
-    int bitpos=65;
     int i;
     memset(&gc_status, 0, sizeof(gc_status));
     // line 1
@@ -72,9 +74,11 @@ void translate_raw_data()
     for (i=0; i<8; i++) {
         gc_status.stick_x |= gc_status_extended[65-16-i] ? (0x80 >> i) : 0;
     }
+    gc_status.stick_x ^= 0xff;
     for (i=0; i<8; i++) {
         gc_status.stick_y |= gc_status_extended[65-24-i] ? (0x80 >> i) : 0;
     }
+    gc_status.stick_y ^= 0xff;
     for (i=0; i<8; i++) {
         gc_status.cstick_x |= gc_status_extended[65-32-i] ? (0x80 >> i) : 0;
     }
@@ -96,7 +100,7 @@ void translate_raw_data()
  * length of that byte array
  * length must be at least 1
  */
-void get_gc_status(bool rumble, unsigned char *buffer, char length)
+void get_gc_status(unsigned char *buffer, char length)
 {
     // Send these bytes
     char bits;
@@ -301,7 +305,7 @@ void loop()
 
   unsigned char command[] = {0x40, 0x03, 0x00};
   digitalWrite(13, HIGH); // Set led to on
-  get_gc_status(false, command, 3);
+  get_gc_status(command, 3);
   digitalWrite(13, LOW); // set led to off
 
   translate_raw_data();
