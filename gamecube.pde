@@ -183,7 +183,6 @@ void gc_send(unsigned char *buffer, char length)
 {
     // Send these bytes
     char bits;
-    char byte_index;
     
     bool bit;
 
@@ -305,7 +304,6 @@ void n64_send(unsigned char *buffer, char length, bool wide_stop)
     asm volatile (";Starting N64 Send Routine");
     // Send these bytes
     char bits;
-    char byte_index;
     
     bool bit;
 
@@ -571,15 +569,20 @@ void loop()
             // identify
             // mutilate the n64_buffer array with our status
             // we return 0x050001 to indicate we have a rumble pack
+            // or 0x050002 to indicate the expansion slot is empty
             n64_buffer[0] = 0x05;
             n64_buffer[1] = 0x00;
-            n64_buffer[2] = 0x01;
+            n64_buffer[2] = 0x02;
+
             n64_send(n64_buffer, 3, 0);
+
+            Serial.println("It was 0x00: an identify command");
             break;
         case 0x01:
             // blast out the pre-assembled array in n64_buffer
             n64_send(n64_buffer, 4, 0);
 
+            Serial.println("It was 0x01: the query command");
             break;
         case 0x02:
             // A read. If the address is 0x8000, return 32 bytes of 0x80 bytes,
@@ -593,6 +596,7 @@ void loop()
 
             n64_send(n64_buffer, 33, 1);
 
+            Serial.println("It was 0x02: the read command");
             break;
         case 0x03:
             // A write. we at least need to respond with a single CRC byte.  If
@@ -636,6 +640,8 @@ void loop()
             if (addr == 0xC0) {
                 rumble = (data != 0);
             }
+
+            Serial.println("It was 0x03: the write command");
             break;
     }
 
@@ -666,8 +672,18 @@ void get_n64_command()
 {
     char bitcount=8;
     char *bitbin = n64_raw_dump;
+    int idle_wait;
 
     bitcount = 8;
+
+    // wait 32 cycles to make sure the line is idle before
+    // we begin listening
+    for (idle_wait=32; idle_wait>0; --idle_wait) {
+        if (!N64_QUERY) {
+            idle_wait = 32;
+        }
+    }
+
 read_loop:
         // wait for the line to go low
         while (N64_QUERY){}
