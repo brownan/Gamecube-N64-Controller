@@ -29,7 +29,7 @@ struct {
     unsigned char right;
 } gc_status;
 char gc_raw_dump[65]; // 1 received bit per byte
-char n64_raw_dump[35];
+char n64_raw_dump[281]; // maximum recv is 1+2+32 bytes + 1 bit
 
 // bytes to send to the 64
 // maximum we'll need to send is 33, 32 for a read request and 1 CRC byte
@@ -563,7 +563,10 @@ void loop()
     // 0x01 is status
     // 0x02 is read
     // 0x03 is write
-    switch (((n64_raw_dump[6] != 0) << 1 ) | (n64_raw_dump[7] != 0))
+    char n64command = 0;
+    n64command |= (n64_raw_dump[6] != 0) << 1;
+    n64command |= (n64_raw_dump[7] != 0);
+    switch ((int)n64command)
     {
         case 0x00:
             // identify
@@ -674,7 +677,7 @@ void get_n64_command()
     char *bitbin = n64_raw_dump;
     int idle_wait;
 
-    bitcount = 8;
+    bitcount = 9; // read the stop bit too
 
     // wait 32 cycles to make sure the line is idle before
     // we begin listening
@@ -715,10 +718,11 @@ read_more:
         if (bitbin[7]) {
             // 1 bit is also on, the command is 0x03
             // we expect a 2 byte address and 32 bytes of data
-            bitcount = 272; // 34 bytes * 8 bits per byte
+            bitcount = 272 + 1; // 34 bytes * 8 bits per byte
+            // don't forget the stop bit
         } else {
             // we expect a 2 byte address
-            bitcount = 16;
+            bitcount = 16 + 1;
         }
         // make sure the line is high. Hopefully we didn't already
         // miss the high-to-low transition
