@@ -526,6 +526,7 @@ void loop()
 
     // clear out incomming raw data buffer
     memset(gc_raw_dump, 0, sizeof(gc_raw_dump));
+    memset(n64_raw_dump, 0, sizeof(n64_raw_dump));
 
     // Command to send to the gamecube
     // The last bit is rumble, flip it to rumble
