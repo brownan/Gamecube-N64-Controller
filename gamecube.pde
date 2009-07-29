@@ -32,7 +32,8 @@ char gc_raw_dump[65]; // 1 received bit per byte
 char n64_raw_dump[35];
 
 // bytes to send to the 64
-unsigned char n64_buffer[4];
+// maximum we'll need to send is 33, 32 for a read request and 1 CRC byte
+unsigned char n64_buffer[33];
 
 void gc_send(unsigned char *buffer, char length);
 void gc_get();
@@ -40,6 +41,8 @@ void print_gc_status();
 void translate_raw_data();
 void gc_to_64();
 void get_n64_command();
+
+#include "crc_table.h"
 
 void setup()
 {
@@ -117,6 +120,9 @@ void gc_to_64()
 {
     // clear it out
     memset(gc_raw_dump, 0, sizeof(gc_raw_dump));
+    // For reference, the bits in data1 and data2 of the gamecube struct:
+    // data1: 0, 0, 0, start, y, x, b, a
+    // data2: 1, L, R, Z, Dup, Ddown, Dright, Dleft
 
     // First byte in n64_buffer should contain:
     // A, B, Z, Start, Dup, Ddown, Dleft, Dright
@@ -125,7 +131,7 @@ void gc_to_64()
     n64_buffer[0] |= (gc_status.data1 & 0x02) << 5; // B -> B
     n64_buffer[0] |= (gc_status.data2 & 0x40) >> 1; // L -> Z
     n64_buffer[0] |= (gc_status.data1 & 0x10)     ; // S -> S
-    n64_buffer[0] |= (gc_status.data1 & 0x0F)     ; // D pad
+    n64_buffer[0] |= (gc_status.data2 & 0x0F)     ; // D pad
 
     // Second byte:
     // 0, 0, L, R, Cup, Cdown, Cleft, Cright
@@ -287,6 +293,127 @@ inner_loop:
     GC_HIGH;
 
 }
+/**
+ * Complete copy and paste of gc_send, but with the N64
+ * pin being manipulated instead.
+ * I copy and pasted because I didn't want to risk the assembly
+ * output being altered by passing some kind of parameter in
+ * (read: I'm lazy... it probably would have worked)
+ */
+void n64_send(unsigned char *buffer, char length)
+{
+    // Send these bytes
+    char bits;
+    char byte_index;
+    
+    bool bit;
+
+    // This routine is very carefully timed by examining the assembly output.
+    // Do not change any statements, it could throw the timings off
+    //
+    // We get 16 cycles per microsecond, which should be plenty, but we need to
+    // be conservative. Most assembly ops take 1 cycle, but a few take 2
+    //
+    // I use manually constructed for-loops out of gotos so I have more control
+    // over the outputted assembly. I can insert nops where it was impossible
+    // with a for loop
+    
+    asm volatile (";Starting outer for loop");
+outer_loop:
+    {
+        asm volatile (";Starting inner for loop");
+        bits=8;
+inner_loop:
+        {
+            // Starting a bit, set the line low
+            asm volatile (";Setting line to low");
+            N64_LOW; // 1 op, 2 cycles
+
+            asm volatile (";branching");
+            if (*buffer >> 7) {
+                asm volatile (";Bit is a 1");
+                // 1 bit
+                // remain low for 1us, then go high for 3us
+                // nop block 1
+                asm volatile ("nop\nnop\nnop\nnop\nnop\n");
+                
+                asm volatile (";Setting line to high");
+                N64_HIGH;
+
+                // nop block 2
+                // we'll wait only 2us to sync up with both conditions
+                // at the bottom of the if statement
+                asm volatile ("nop\nnop\nnop\nnop\nnop\n"  
+                              "nop\nnop\nnop\nnop\nnop\n"  
+                              "nop\nnop\nnop\nnop\nnop\n"  
+                              "nop\nnop\nnop\nnop\nnop\n"  
+                              "nop\nnop\nnop\nnop\nnop\n"  
+                              "nop\nnop\nnop\nnop\nnop\n"  
+                              );
+
+            } else {
+                asm volatile (";Bit is a 0");
+                // 0 bit
+                // remain low for 3us, then go high for 1us
+                // nop block 3
+                asm volatile ("nop\nnop\nnop\nnop\nnop\n"  
+                              "nop\nnop\nnop\nnop\nnop\n"  
+                              "nop\nnop\nnop\nnop\nnop\n"  
+                              "nop\nnop\nnop\nnop\nnop\n"  
+                              "nop\nnop\nnop\nnop\nnop\n"  
+                              "nop\nnop\nnop\nnop\nnop\n"  
+                              "nop\nnop\nnop\nnop\nnop\n"  
+                              "nop\n");
+
+                asm volatile (";Setting line to high");
+                N64_HIGH;
+
+                // wait for 1us
+                asm volatile ("; end of conditional branch, need to wait 1us more before next bit");
+                
+            }
+            // end of the if, the line is high and needs to remain
+            // high for exactly 16 more cycles, regardless of the previous
+            // branch path
+
+            asm volatile (";finishing inner loop body");
+            --bits;
+            if (bits != 0) {
+                // nop block 4
+                // this block is why a for loop was impossible
+                asm volatile ("nop\nnop\nnop\nnop\nnop\n"  
+                              "nop\nnop\nnop\nnop\n");
+                // rotate bits
+                asm volatile (";rotating out bits");
+                *buffer <<= 1;
+
+                goto inner_loop;
+            } // fall out of inner loop
+        }
+        asm volatile (";continuing outer loop");
+        // In this case: the inner loop exits and the outer loop iterates,
+        // there are /exactly/ 16 cycles taken up by the necessary operations.
+        // So no nops are needed here (that was lucky!)
+        --length;
+        if (length != 0) {
+            ++buffer;
+            goto outer_loop;
+        } // fall out of outer loop
+    }
+
+    // send a single stop (1) bit
+    // nop block 5
+    asm volatile ("nop\nnop\nnop\nnop\n");
+    N64_LOW;
+    // wait 1 us, 16 cycles, then raise the line 
+    // 16-2=14
+    // nop block 6
+    asm volatile ("nop\nnop\nnop\nnop\nnop\n"
+                  "nop\nnop\nnop\nnop\nnop\n"  
+                  "nop\nnop\nnop\nnop\n");
+    N64_HIGH;
+
+}
 
 void gc_get()
 {
@@ -385,9 +512,10 @@ void print_gc_status()
     Serial.println(gc_status.right, DEC);
 }
 
-
+bool rumble = false;
 void loop()
 {
+    int i;
 
     // clear out incomming raw data buffer
     memset(gc_raw_dump, 0, sizeof(gc_raw_dump));
@@ -397,6 +525,9 @@ void loop()
     // yes this does need to be inside the loop, the
     // array gets mutilated when it goes through gc_send
     unsigned char command[] = {0x40, 0x03, 0x00};
+    if (rumble) {
+        command[2] = 0x01;
+    }
 
     // turn on the led, so we can visually see things are happening
     digitalWrite(13, HIGH);
@@ -417,12 +548,92 @@ void loop()
 
     // Wait for incomming 64 command
     // this will block until the N64 sends us a command
+    noInterrupts();
     get_n64_command();
 
-    // TODO: Send a response to the 64
+    // determine what to do by looking at bits at index 6 and 7
+    // 0x00 is identify command
+    // 0x01 is status
+    // 0x02 is read
+    // 0x03 is write
+    switch (((n64_raw_dump[6] != 0) << 1 ) | (n64_raw_dump[7] != 0))
+    {
+        case 0x00:
+            // identify
+            // mutilate the n64_buffer array with our status
+            // we return 0x050001 to indicate we have a rumble pack
+            n64_buffer[0] = 0x05;
+            n64_buffer[1] = 0x00;
+            n64_buffer[2] = 0x01;
+            n64_send(n64_buffer, 3);
+            break;
+        case 0x01:
+            // blast out the pre-assembled array in n64_buffer
+            n64_send(n64_buffer, 4);
+
+            break;
+        case 0x02:
+            // A read. If the address is 0x8000, return 32 bytes of 0x80 bytes,
+            // and a CRC byte.  this tells the system our attached controller
+            // pack is a rumble pack
+
+            // Assume it's a read for 0x8000
+            // I hope memset doesn't take too long
+            memset(n64_buffer, 0x80, 32);
+            n64_buffer[32] = 0xB8; // CRC
+
+            n64_send(n64_buffer, 33);
+
+            break;
+        case 0x03:
+            // A write. we at least need to respond with a single CRC byte.  If
+            // the write was to address 0xC000 and the data was 0x01, turn on
+            // rumble! All other write addresses are ignored. (but we still
+            // need to return a CRC)
+
+            // decode the first data byte (fourth overall byte), bits indexed
+            // at 24 through 31
+            unsigned char data = 0;
+            data |= (n64_raw_dump[24] != 0) << 7;
+            data |= (n64_raw_dump[25] != 0) << 6;
+            data |= (n64_raw_dump[26] != 0) << 5;
+            data |= (n64_raw_dump[27] != 0) << 4;
+            data |= (n64_raw_dump[28] != 0) << 3;
+            data |= (n64_raw_dump[29] != 0) << 2;
+            data |= (n64_raw_dump[30] != 0) << 1;
+            data |= (n64_raw_dump[31] != 0);
+
+            // get crc byte, invert it, as per the protocol for
+            // having a memory card attached
+            n64_buffer[0] = crc_repeating_table[data] ^ 0xFF;
+
+            // send it
+            n64_send(n64_buffer, 1);
+
+            // end of time critical code
+            // was the address the rumble latch at 0xC000?
+            // decode the first half of the address, bits
+            // 8 through 15
+            unsigned char addr;
+            addr |= (n64_raw_dump[8] != 0) << 7;
+            addr |= (n64_raw_dump[9] != 0) << 6;
+            addr |= (n64_raw_dump[10] != 0) << 5;
+            addr |= (n64_raw_dump[11] != 0) << 4;
+            addr |= (n64_raw_dump[12] != 0) << 3;
+            addr |= (n64_raw_dump[13] != 0) << 2;
+            addr |= (n64_raw_dump[14] != 0) << 1;
+            addr |= (n64_raw_dump[15] != 0);
+
+            if (addr == 0xC0) {
+                rumble = (data != 0);
+            }
+            break;
+    }
+
+    interrupts();
 
     // DEBUG: print it
-    print_gc_status();
+    //print_gc_status();
 
   
   
