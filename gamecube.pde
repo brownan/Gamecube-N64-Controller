@@ -523,10 +523,12 @@ bool rumble = false;
 void loop()
 {
     int i;
+    unsigned char data, addr;
 
     // clear out incomming raw data buffer
-    memset(gc_raw_dump, 0, sizeof(gc_raw_dump));
-    memset(n64_raw_dump, 0, sizeof(n64_raw_dump));
+    // this should be unnecessary
+    //memset(gc_raw_dump, 0, sizeof(gc_raw_dump));
+    //memset(n64_raw_dump, 0, sizeof(n64_raw_dump));
 
     // Command to send to the gamecube
     // The last bit is rumble, flip it to rumble
@@ -610,7 +612,7 @@ void loop()
 
             // decode the first data byte (fourth overall byte), bits indexed
             // at 24 through 31
-            unsigned char data = 0;
+            data = 0;
             data |= (n64_raw_dump[24] != 0) << 7;
             data |= (n64_raw_dump[25] != 0) << 6;
             data |= (n64_raw_dump[26] != 0) << 5;
@@ -631,7 +633,7 @@ void loop()
             // was the address the rumble latch at 0xC000?
             // decode the first half of the address, bits
             // 8 through 15
-            unsigned char addr;
+            addr;
             addr |= (n64_raw_dump[8] != 0) << 7;
             addr |= (n64_raw_dump[9] != 0) << 6;
             addr |= (n64_raw_dump[10] != 0) << 5;
@@ -647,6 +649,8 @@ void loop()
 
             Serial.println("It was 0x03: the write command");
             break;
+        default:
+            Serial.println("Warning, command was something else entirely!");
     }
 
     interrupts();
@@ -674,13 +678,13 @@ void loop()
   */
 void get_n64_command()
 {
-    char bitcount=8;
+    int bitcount=8;
     char *bitbin = n64_raw_dump;
     int idle_wait;
 
     bitcount = 9; // read the stop bit too
 
-    // wait 32 cycles to make sure the line is idle before
+    // wait to make sure the line is idle before
     // we begin listening
     for (idle_wait=32; idle_wait>0; --idle_wait) {
         if (!N64_QUERY) {
