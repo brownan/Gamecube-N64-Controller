@@ -300,8 +300,9 @@ inner_loop:
  * output being altered by passing some kind of parameter in
  * (read: I'm lazy... it probably would have worked)
  */
-void n64_send(unsigned char *buffer, char length)
+void n64_send(unsigned char *buffer, char length, bool wide_stop)
 {
+    asm volatile (";Starting N64 Send Routine");
     // Send these bytes
     char bits;
     char byte_index;
@@ -406,11 +407,19 @@ inner_loop:
     asm volatile ("nop\nnop\nnop\nnop\n");
     N64_LOW;
     // wait 1 us, 16 cycles, then raise the line 
-    // 16-2=14
+    // take another 3 off for the wide_stop check
+    // 16-2-3=11
     // nop block 6
     asm volatile ("nop\nnop\nnop\nnop\nnop\n"
                   "nop\nnop\nnop\nnop\nnop\n"  
-                  "nop\nnop\nnop\nnop\n");
+                  "nop\n");
+    if (wide_stop) {
+        asm volatile (";another 1us for extra wide stop bit\n"
+                      "nop\nnop\nnop\nnop\nnop\n"
+                      "nop\nnop\nnop\nnop\nnop\n"  
+                      "nop\nnop\nnop\nnop\n");
+    }
+
     N64_HIGH;
 
 }
@@ -565,11 +574,11 @@ void loop()
             n64_buffer[0] = 0x05;
             n64_buffer[1] = 0x00;
             n64_buffer[2] = 0x01;
-            n64_send(n64_buffer, 3);
+            n64_send(n64_buffer, 3, 0);
             break;
         case 0x01:
             // blast out the pre-assembled array in n64_buffer
-            n64_send(n64_buffer, 4);
+            n64_send(n64_buffer, 4, 0);
 
             break;
         case 0x02:
@@ -582,7 +591,7 @@ void loop()
             memset(n64_buffer, 0x80, 32);
             n64_buffer[32] = 0xB8; // CRC
 
-            n64_send(n64_buffer, 33);
+            n64_send(n64_buffer, 33, 1);
 
             break;
         case 0x03:
@@ -608,7 +617,7 @@ void loop()
             n64_buffer[0] = crc_repeating_table[data] ^ 0xFF;
 
             // send it
-            n64_send(n64_buffer, 1);
+            n64_send(n64_buffer, 1, 1);
 
             // end of time critical code
             // was the address the rumble latch at 0xC000?
