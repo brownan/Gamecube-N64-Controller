@@ -713,9 +713,9 @@ read_loop:
         goto read_loop;
 
 read_more:
-    if (bitbin[6]) {
+    if (n64_raw_dump[6]) {
         // 2 bit is on, we need to read more
-        if (bitbin[7]) {
+        if (n64_raw_dump[7]) {
             // 1 bit is also on, the command is 0x03
             // we expect a 2 byte address and 32 bytes of data
             bitcount = 272 + 1; // 34 bytes * 8 bits per byte
