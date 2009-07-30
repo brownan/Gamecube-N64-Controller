@@ -48,11 +48,8 @@ void setup()
 {
   Serial.begin(9600);
 
-  Serial.print("bit: 0x");
-  Serial.println(digitalPinToBitMask(N64_PIN), HEX);
-  
-  Serial.print("port: 0x");
-  Serial.println(digitalPinToPort(N64_PIN), HEX);
+  Serial.println();
+  Serial.println("Code has started!");
 
   // Status LED
   digitalWrite(13, LOW);
@@ -433,10 +430,10 @@ inner_loop:
 
 void gc_get()
 {
-    // Listening for an expected 8 bytes of data from the controller and put
-    // them into gc_status, an 8 byte array.
-    // we put the received bytes into the array backwards, so the first byte
-    // goes into slot 0.
+    // listen for the expected 8 bytes of data back from the controller and
+    // blast it out to the gc_raw_dump array, one bit per byte for extra speed.
+    // Afterwards, call translate_raw_data() to interpret the raw data and pack
+    // it into the gc_status struct.
     asm volatile (";Starting to listen");
     unsigned char timeout;
     char bitcount = 64;
@@ -587,7 +584,7 @@ void loop()
             // or 0x050002 to indicate the expansion slot is empty
             n64_buffer[0] = 0x05;
             n64_buffer[1] = 0x00;
-            n64_buffer[2] = 0x02;
+            n64_buffer[2] = 0x01;
 
             n64_send(n64_buffer, 3, 0);
 
@@ -604,8 +601,8 @@ void loop()
             // and a CRC byte.  this tells the system our attached controller
             // pack is a rumble pack
 
-            // Assume it's a read for 0x8000
-            // I hope memset doesn't take too long
+            // Assume it's a read for 0x8000, which is the only thing it should
+            // be requesting anyways
             memset(n64_buffer, 0x80, 32);
             n64_buffer[32] = 0xB8; // CRC
 
@@ -657,6 +654,10 @@ void loop()
             }
 
             //Serial.println("It was 0x03: the write command");
+            //Serial.print("Addr was 0x");
+            //Serial.print(addr, HEX);
+            //Serial.print(" and data was 0x");
+            //Serial.println(data, HEX);
             break;
     }
 
@@ -682,7 +683,7 @@ void loop()
   */
 void get_n64_command()
 {
-    int bitcount=8;
+    int bitcount;
     char *bitbin = n64_raw_dump;
     int idle_wait;
 
@@ -722,16 +723,20 @@ read_loop:
         goto read_loop;
 
 read_more:
+        //Serial.println("Read 7 bits");
     if (n64_raw_dump[6]) {
         // 2 bit is on, we need to read more
         if (n64_raw_dump[7]) {
+            // write command
             // 1 bit is also on, the command is 0x03
             // we expect a 2 byte address and 32 bytes of data
-            bitcount = 272 + 1; // 34 bytes * 8 bits per byte
-            // don't forget the stop bit
+            bitcount = 272; // 34 bytes * 8 bits per byte
+            //Serial.println("command is 0x03, write");
         } else {
+            // read command 0x02
             // we expect a 2 byte address
-            bitcount = 16 + 1;
+            bitcount = 16;
+            //Serial.println("command is 0x02, read");
         }
         // make sure the line is high. Hopefully we didn't already
         // miss the high-to-low transition
@@ -758,5 +763,5 @@ read_loop2:
         // wait for line to go high again
         while (!N64_QUERY) {}
         goto read_loop2;
-    }
+    } //else Serial.println("No more data");
 }
