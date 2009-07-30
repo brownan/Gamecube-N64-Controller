@@ -150,19 +150,19 @@ void gc_to_64()
     // Analog sticks are a value 0-255 with the center at 128 the maximum and
     // minimum values seemed to vary a bit, but we only need to choose a
     // threshold here
-    if (gc_status.cstick_x > 0xB0) {
+    if (gc_status.cstick_x < 0x50) {
         // C-left
         n64_buffer[1] |= 0x02;
     }
-    if (gc_status.cstick_x < 0x50) {
+    if (gc_status.cstick_x > 0xB0) {
         // C-right
         n64_buffer[1] |= 0x01;
     }
-    if (gc_status.cstick_y > 0xB0) {
+    if (gc_status.cstick_y < 0x50) {
         // C-down
         n64_buffer[1] |= 0x04;
     }
-    if (gc_status.cstick_y < 0x50) {
+    if (gc_status.cstick_y > 0xB0) {
         // C-up
         n64_buffer[1] |= 0x08;
     }
