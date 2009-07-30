@@ -649,18 +649,13 @@ void loop()
 
             Serial.println("It was 0x03: the write command");
             break;
-        default:
-            Serial.println("Warning, command was something else entirely!");
     }
 
     interrupts();
 
     // DEBUG: print it
     //print_gc_status();
-
   
-  
-  delay(1000);
 }
 
 /**
