@@ -140,6 +140,13 @@ void gc_to_64()
     n64_buffer[1] |= (gc_status.data2 & 0x10) << 1; // Z -> L (who uses N64's L?)
     n64_buffer[1] |= (gc_status.data2 & 0x20) >> 1; // R -> R
 
+    // L and R pressed if the pressure sensitive button crosses
+    // a threshold, so they don't have to be fully pressed down
+    if (gc_status.left > 0x50)
+        n64_buffer[0] |= 0x20;
+    if (gc_status.right > 0x50)
+        n64_buffer[1] |= 0x10;
+
     // Optional, map the X and Y buttons to something
     // Here I chose Cleft and Cdown, since they're in relatively the same
     // location (relative to the A button), and they mean something special
