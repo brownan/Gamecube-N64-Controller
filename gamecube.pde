@@ -119,7 +119,7 @@ void translate_raw_data()
 void gc_to_64()
 {
     // clear it out
-    memset(gc_raw_dump, 0, sizeof(gc_raw_dump));
+    memset(n64_buffer, 0, sizeof(n64_buffer));
     // For reference, the bits in data1 and data2 of the gamecube struct:
     // data1: 0, 0, 0, start, y, x, b, a
     // data2: 1, L, R, Z, Dup, Ddown, Dright, Dleft
@@ -150,28 +150,28 @@ void gc_to_64()
     // Analog sticks are a value 0-255 with the center at 128 the maximum and
     // minimum values seemed to vary a bit, but we only need to choose a
     // threshold here
-    if (gc_status.cstick_x < 0x50) {
+    if (gc_status.cstick_x > 0xB0) {
         // C-left
         n64_buffer[1] |= 0x02;
     }
-    if (gc_status.cstick_x > 0xB0) {
+    if (gc_status.cstick_x < 0x50) {
         // C-right
         n64_buffer[1] |= 0x01;
     }
-    if (gc_status.cstick_y < 0x50) {
+    if (gc_status.cstick_y > 0xB0) {
         // C-down
         n64_buffer[1] |= 0x04;
     }
-    if (gc_status.cstick_y > 0xB0) {
+    if (gc_status.cstick_y < 0x50) {
         // C-up
         n64_buffer[1] |= 0x08;
     }
 
     // Third byte: Control Stick X position
-    n64_buffer[2] = 0x80 - gc_status.stick_x;
+    n64_buffer[2] = -0x80 + gc_status.stick_x;
     
     // Fourth byte: Control Stick Y Position
-    n64_buffer[3] = 0x80 - gc_status.stick_y;
+    n64_buffer[3] = -0x80 + gc_status.stick_y;
 }
 
 /**
@@ -582,13 +582,13 @@ void loop()
 
             n64_send(n64_buffer, 3, 0);
 
-            Serial.println("It was 0x00: an identify command");
+            //Serial.println("It was 0x00: an identify command");
             break;
         case 0x01:
             // blast out the pre-assembled array in n64_buffer
             n64_send(n64_buffer, 4, 0);
 
-            Serial.println("It was 0x01: the query command");
+            //Serial.println("It was 0x01: the query command");
             break;
         case 0x02:
             // A read. If the address is 0x8000, return 32 bytes of 0x80 bytes,
@@ -602,7 +602,7 @@ void loop()
 
             n64_send(n64_buffer, 33, 1);
 
-            Serial.println("It was 0x02: the read command");
+            //Serial.println("It was 0x02: the read command");
             break;
         case 0x03:
             // A write. we at least need to respond with a single CRC byte.  If
@@ -647,7 +647,7 @@ void loop()
                 rumble = (data != 0);
             }
 
-            Serial.println("It was 0x03: the write command");
+            //Serial.println("It was 0x03: the write command");
             break;
     }
 
