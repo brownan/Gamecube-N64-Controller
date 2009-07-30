@@ -131,7 +131,9 @@ void gc_to_64()
     n64_buffer[0] |= (gc_status.data1 & 0x02) << 5; // B -> B
     n64_buffer[0] |= (gc_status.data2 & 0x40) >> 1; // L -> Z
     n64_buffer[0] |= (gc_status.data1 & 0x10)     ; // S -> S
-    n64_buffer[0] |= (gc_status.data2 & 0x0F)     ; // D pad
+    n64_buffer[0] |= (gc_status.data2 & 0x0C)     ; // D pad up and down
+    n64_buffer[0] |= (gc_status.data2 & 0x02) >> 1; // D pad right
+    n64_buffer[0] |= (gc_status.data2 & 0x01) << 1; // D pad left
 
     // Second byte:
     // 0, 0, L, R, Cup, Cdown, Cleft, Cright
