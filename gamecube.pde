@@ -142,7 +142,7 @@ void gc_to_64()
     // Here I chose Cleft and Cdown, since they're in relatively the same
     // location (relative to the A button), and they mean something special
     // in starfox.
-    n64_buffer[1] |= (gc_status.data1 & 0x08) >> 1; // Y -> Cleft
+    n64_buffer[1] |= (gc_status.data1 & 0x08) >> 2; // Y -> Cleft
     n64_buffer[1] |= (gc_status.data1 & 0x04)     ; // X -> Cdown
 
     // C buttons are tricky, translate the C stick values to determine which C
