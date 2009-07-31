@@ -577,10 +577,15 @@ void loop()
     switch (n64_command)
     {
         case 0x00:
+        case 0xFF:
             // identify
             // mutilate the n64_buffer array with our status
             // we return 0x050001 to indicate we have a rumble pack
             // or 0x050002 to indicate the expansion slot is empty
+            //
+            // 0xFF I've seen sent from Mario 64 and Shadows of the Empire.
+            // I don't know why it's different, but the controllers seem to
+            // send a set of status bytes afterwards.
             n64_buffer[0] = 0x05;
             n64_buffer[1] = 0x00;
             n64_buffer[2] = 0x01;
@@ -659,10 +664,6 @@ void loop()
             //Serial.println(data, HEX);
             break;
 
-        case 0xFF:
-            // mario 64 and shadows of the empire send this code
-            // but I don't know how to respond to it
-            break;
     }
 
     interrupts();

@@ -9,8 +9,8 @@ F_CPU = 16000000
 
 AVR_TOOLS_PATH = /usr/bin
 
-AVRDUDE = ../hardware/tools/avrdude
-AVRDUDE_CONF = ../hardware/tools/avrdude.conf
+AVRDUDE = ../arduino-0016/hardware/tools/avrdude
+AVRDUDE_CONF = ../arduino-0016/hardware/tools/avrdude.conf
 AVRDUDE_PORT = /dev/ttyUSB0
 
 # Probably don't need to edit below here
