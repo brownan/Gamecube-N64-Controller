@@ -30,6 +30,9 @@ struct {
 } gc_status;
 char gc_raw_dump[65]; // 1 received bit per byte
 char n64_raw_dump[281]; // maximum recv is 1+2+32 bytes + 1 bit
+// n64_raw_dump does /not/ include the command byte. That gets pushed into
+// n64_command:
+unsigned char n64_command;
 
 // bytes to send to the 64
 // maximum we'll need to send is 33, 32 for a read request and 1 CRC byte
@@ -567,15 +570,11 @@ void loop()
     noInterrupts();
     get_n64_command();
 
-    // determine what to do by looking at bits at index 6 and 7
     // 0x00 is identify command
     // 0x01 is status
     // 0x02 is read
     // 0x03 is write
-    char n64command = 0;
-    n64command |= (n64_raw_dump[6] != 0) << 1;
-    n64command |= (n64_raw_dump[7] != 0);
-    switch ((int)n64command)
+    switch (n64_command)
     {
         case 0x00:
             // identify
@@ -619,14 +618,14 @@ void loop()
             // decode the first data byte (fourth overall byte), bits indexed
             // at 24 through 31
             data = 0;
-            data |= (n64_raw_dump[24] != 0) << 7;
-            data |= (n64_raw_dump[25] != 0) << 6;
-            data |= (n64_raw_dump[26] != 0) << 5;
-            data |= (n64_raw_dump[27] != 0) << 4;
-            data |= (n64_raw_dump[28] != 0) << 3;
-            data |= (n64_raw_dump[29] != 0) << 2;
-            data |= (n64_raw_dump[30] != 0) << 1;
-            data |= (n64_raw_dump[31] != 0);
+            data |= (n64_raw_dump[16] != 0) << 7;
+            data |= (n64_raw_dump[17] != 0) << 6;
+            data |= (n64_raw_dump[18] != 0) << 5;
+            data |= (n64_raw_dump[19] != 0) << 4;
+            data |= (n64_raw_dump[20] != 0) << 3;
+            data |= (n64_raw_dump[21] != 0) << 2;
+            data |= (n64_raw_dump[22] != 0) << 1;
+            data |= (n64_raw_dump[23] != 0);
 
             // get crc byte, invert it, as per the protocol for
             // having a memory card attached
@@ -639,15 +638,15 @@ void loop()
             // was the address the rumble latch at 0xC000?
             // decode the first half of the address, bits
             // 8 through 15
-            addr;
-            addr |= (n64_raw_dump[8] != 0) << 7;
-            addr |= (n64_raw_dump[9] != 0) << 6;
-            addr |= (n64_raw_dump[10] != 0) << 5;
-            addr |= (n64_raw_dump[11] != 0) << 4;
-            addr |= (n64_raw_dump[12] != 0) << 3;
-            addr |= (n64_raw_dump[13] != 0) << 2;
-            addr |= (n64_raw_dump[14] != 0) << 1;
-            addr |= (n64_raw_dump[15] != 0);
+            addr = 0;
+            addr |= (n64_raw_dump[0] != 0) << 7;
+            addr |= (n64_raw_dump[1] != 0) << 6;
+            addr |= (n64_raw_dump[2] != 0) << 5;
+            addr |= (n64_raw_dump[3] != 0) << 4;
+            addr |= (n64_raw_dump[4] != 0) << 3;
+            addr |= (n64_raw_dump[5] != 0) << 2;
+            addr |= (n64_raw_dump[6] != 0) << 1;
+            addr |= (n64_raw_dump[7] != 0);
 
             if (addr == 0xC0) {
                 rumble = (data != 0);
@@ -659,6 +658,9 @@ void loop()
             //Serial.print(" and data was 0x");
             //Serial.println(data, HEX);
             break;
+        //default:
+        //    Serial.print("Warning, command was 0x");
+        //    Serial.println(n64_command, HEX);
     }
 
     interrupts();
@@ -669,8 +671,8 @@ void loop()
 }
 
 /**
-  * Waits for an incomming signal on the N64 pin and reads a single
-  * byte.
+  * Waits for an incomming signal on the N64 pin and reads the command,
+  * and if necessary, any trailing bytes.
   * 0x00 is an identify request
   * 0x01 is a status request
   * 0x02 is a controller pack read
@@ -679,15 +681,17 @@ void loop()
   * for 0x02 and 0x03, additional data is passed in after the command byte,
   * which is also read by this function.
   *
-  * All data is raw dumped to the n64_raw_dump array, 1 bit per byte
+  * All data is raw dumped to the n64_raw_dump array, 1 bit per byte, except
+  * for the command byte, which is placed all packed into n64_command
   */
 void get_n64_command()
 {
     int bitcount;
     char *bitbin = n64_raw_dump;
     int idle_wait;
+    n64_command = 0;
 
-    bitcount = 9; // read the stop bit too
+    bitcount = 8;
 
     // wait to make sure the line is idle before
     // we begin listening
@@ -710,11 +714,14 @@ read_loop:
                       "nop\nnop\nnop\nnop\nnop\n"  
                       "nop\nnop\nnop\nnop\nnop\n"  
                 );
-        *bitbin = N64_QUERY;
-        ++bitbin;
+        if (N64_QUERY)
+            n64_command |= 0x01;
+
         --bitcount;
         if (bitcount == 0)
             goto read_more;
+
+        n64_command <<= 1;
 
         // wait for line to go high again
         // I don't want this to execute if the loop is exiting, so
@@ -723,21 +730,22 @@ read_loop:
         goto read_loop;
 
 read_more:
-        //Serial.println("Read 7 bits");
-    if (n64_raw_dump[6]) {
-        // 2 bit is on, we need to read more
-        if (n64_raw_dump[7]) {
+        if (n64_command == 0x03) {
             // write command
-            // 1 bit is also on, the command is 0x03
             // we expect a 2 byte address and 32 bytes of data
-            bitcount = 272; // 34 bytes * 8 bits per byte
+            bitcount = 272 + 1; // 34 bytes * 8 bits per byte
             //Serial.println("command is 0x03, write");
-        } else {
+        }
+        else if (n64_command == 0x02) {
             // read command 0x02
             // we expect a 2 byte address
-            bitcount = 16;
+            bitcount = 16 + 1;
             //Serial.println("command is 0x02, read");
+        } else {
+            // get the last (stop) bit
+            bitcount = 1;
         }
+
         // make sure the line is high. Hopefully we didn't already
         // miss the high-to-low transition
         while (!N64_QUERY) {}
@@ -763,5 +771,4 @@ read_loop2:
         // wait for line to go high again
         while (!N64_QUERY) {}
         goto read_loop2;
-    } //else Serial.println("No more data");
 }
