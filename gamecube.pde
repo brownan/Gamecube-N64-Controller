@@ -658,9 +658,11 @@ void loop()
             //Serial.print(" and data was 0x");
             //Serial.println(data, HEX);
             break;
-        //default:
-        //    Serial.print("Warning, command was 0x");
-        //    Serial.println(n64_command, HEX);
+
+        case 0xFF:
+            // mario 64 and shadows of the empire send this code
+            // but I don't know how to respond to it
+            break;
     }
 
     interrupts();
@@ -689,6 +691,8 @@ void get_n64_command()
     int bitcount;
     char *bitbin = n64_raw_dump;
     int idle_wait;
+
+func_top:
     n64_command = 0;
 
     bitcount = 8;
@@ -730,20 +734,29 @@ read_loop:
         goto read_loop;
 
 read_more:
-        if (n64_command == 0x03) {
-            // write command
-            // we expect a 2 byte address and 32 bytes of data
-            bitcount = 272 + 1; // 34 bytes * 8 bits per byte
-            //Serial.println("command is 0x03, write");
-        }
-        else if (n64_command == 0x02) {
-            // read command 0x02
-            // we expect a 2 byte address
-            bitcount = 16 + 1;
-            //Serial.println("command is 0x02, read");
-        } else {
-            // get the last (stop) bit
-            bitcount = 1;
+        switch (n64_command)
+        {
+            case (0x03):
+                // write command
+                // we expect a 2 byte address and 32 bytes of data
+                bitcount = 272 + 1; // 34 bytes * 8 bits per byte
+                //Serial.println("command is 0x03, write");
+                break;
+            case (0x02):
+                // read command 0x02
+                // we expect a 2 byte address
+                bitcount = 16 + 1;
+                //Serial.println("command is 0x02, read");
+                break;
+            case (0x00):
+            case (0x01):
+            default:
+                // get the last (stop) bit
+                bitcount = 1;
+                break;
+            //default:
+            //    Serial.println(n64_command, HEX);
+            //    goto func_top;
         }
 
         // make sure the line is high. Hopefully we didn't already
