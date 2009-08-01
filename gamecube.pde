@@ -585,7 +585,8 @@ void loop()
             //
             // 0xFF I've seen sent from Mario 64 and Shadows of the Empire.
             // I don't know why it's different, but the controllers seem to
-            // send a set of status bytes afterwards.
+            // send a set of status bytes afterwards the same as 0x00, and
+            // it won't work without it.
             n64_buffer[0] = 0x05;
             n64_buffer[1] = 0x00;
             n64_buffer[2] = 0x01;
