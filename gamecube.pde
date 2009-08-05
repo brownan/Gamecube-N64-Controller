@@ -67,6 +67,25 @@ void setup()
   digitalWrite(N64_PIN, LOW);
   pinMode(N64_PIN, INPUT);
 
+  // Initialize the gamecube controller by sending it a null byte.
+  // This is unnecessary for a standard controller, but is required for the
+  // Wavebird.
+  unsigned char initialize = 0x00;
+  noInterrupts();
+  gc_send(&initialize, 1);
+  interrupts();
+
+  // Stupid routine to wait for the gamecube controller to stop
+  // sending its response. We don't care what it is, but we
+  // can't start asking for status if it's still responding
+  int x;
+  for (x=0; x<64; x++) {
+      // make sure the line is idle for 64 iterations, should
+      // be plenty.
+      if (!GC_QUERY)
+          x = 0;
+  }
+
   
 }
 
