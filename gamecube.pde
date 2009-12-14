@@ -1,3 +1,32 @@
+/**
+ * Gamecube controller to Nintendo 64 adapter
+ * by Andrew Brown
+ */
+
+/*
+ Copyright (c) 2009 Andrew Brown
+
+ Permission is hereby granted, free of charge, to any person
+ obtaining a copy of this software and associated documentation
+ files (the "Software"), to deal in the Software without
+ restriction, including without limitation the rights to use,
+ copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the
+ Software is furnished to do so, subject to the following
+ conditions:
+
+ The above copyright notice and this permission notice shall be
+ included in all copies or substantial portions of the Software.
+
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+ OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+ OTHER DEALINGS IN THE SOFTWARE.
+ */
 
 #include "pins_arduino.h"
 
@@ -156,7 +185,8 @@ void gc_to_64()
 
     // Second byte:
     // 0, 0, L, R, Cup, Cdown, Cleft, Cright
-    n64_buffer[1] |= (gc_status.data2 & 0x10) << 1; // Z -> L (who uses N64's L?)
+    //n64_buffer[1] |= (gc_status.data2 & 0x10) << 1; // Z -> L (who uses N64's L?)
+    n64_buffer[0] |= (gc_status.data2 & 0x10) << 1; // Z -> Z
     n64_buffer[1] |= (gc_status.data2 & 0x20) >> 1; // R -> R
 
     // L and R pressed if the pressure sensitive button crosses
@@ -167,11 +197,11 @@ void gc_to_64()
         n64_buffer[1] |= 0x10;
 
     // Optional, map the X and Y buttons to something
-    // Here I chose Cleft and Cdown, since they're in relatively the same
-    // location (relative to the A button), and they mean something special
-    // in starfox.
+    // These can  map to anything, since the 64 doesn't have
+    // an x and y. They're free.
     n64_buffer[1] |= (gc_status.data1 & 0x08) >> 2; // Y -> Cleft
-    n64_buffer[1] |= (gc_status.data1 & 0x04)     ; // X -> Cdown
+  //n64_buffer[1] |= (gc_status.data1 & 0x04)     ; // X -> Cdown
+    n64_buffer[1] |= (gc_status.data1 & 0x04) >> 2; // X -> Cright
 
     // C buttons are tricky, translate the C stick values to determine which C
     // buttons are "pressed"
@@ -195,11 +225,21 @@ void gc_to_64()
         n64_buffer[1] |= 0x08;
     }
 
+    // Control sticks:
+    // gc gives an unsigned value from 0 to 256, with 128 being neutral
+    // 64 expects a signed value from -128 to 128 with 0 being neutral
+    
     // Third byte: Control Stick X position
     n64_buffer[2] = -0x80 + gc_status.stick_x;
     
     // Fourth byte: Control Stick Y Position
     n64_buffer[3] = -0x80 + gc_status.stick_y;
+
+    // Zero out least significant bits. Frequently, the 64 would sense small
+    // movements when the control stick was neutral. This, after some trial
+    // and error, seems to make it feel more natural.
+    n64_buffer[2] &= 0xF0;
+    n64_buffer[3] &= 0xF0;
 }
 
 /**
