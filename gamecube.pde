@@ -63,6 +63,10 @@ char n64_raw_dump[281]; // maximum recv is 1+2+32 bytes + 1 bit
 // n64_command:
 unsigned char n64_command;
 
+// Zero points for the GC controller stick
+unsigned char zero_x;
+unsigned char zero_y;
+
 // bytes to send to the 64
 // maximum we'll need to send is 33, 32 for a read request and 1 CRC byte
 unsigned char n64_buffer[33];
@@ -102,7 +106,6 @@ void setup()
   unsigned char initialize = 0x00;
   noInterrupts();
   gc_send(&initialize, 1);
-  interrupts();
 
   // Stupid routine to wait for the gamecube controller to stop
   // sending its response. We don't care what it is, but we
@@ -115,6 +118,16 @@ void setup()
           x = 0;
   }
 
+  // Query for the gamecube controller's status. We do this
+  // to get the 0 point for the control stick.
+  unsigned char command[] = {0x40, 0x03, 0x00};
+  gc_send(command, 3);
+  // read in data and dump it to gc_raw_dump
+  gc_get();
+  interrupts();
+  translate_raw_data();
+  zero_x = gc_status.stick_x;
+  zero_y = gc_status.stick_y;
   
 }
 
@@ -228,18 +241,33 @@ void gc_to_64()
     // Control sticks:
     // gc gives an unsigned value from 0 to 256, with 128 being neutral
     // 64 expects a signed value from -128 to 128 with 0 being neutral
+    //
+    // Additionally, the 64 controllers are relative. Whatever stick position
+    // it's in when it's powered on is what it reports as 0.
+    // Gamecube controllers, on the other hand, are absolute. No matter what
+    // position the stick is in when it's powered on, it doesn't matter. However,
+    // due to (I'm guessing) variations in exactly what 0 is from controller to
+    // controller, the gamecube still sets a 0 value per controller when they're
+    // plugged in. We need to emulate this functionality.
+    //
+    //
+    // Also, evidentially, the gamecube controllers can have a variation of 2
+    // or 3 units for their idle position. The 64 may not care, but I'm just
+    // noting it here.
     
     // Third byte: Control Stick X position
-    n64_buffer[2] = -0x80 + gc_status.stick_x;
+    n64_buffer[2] = -zero_x + gc_status.stick_x;
     
     // Fourth byte: Control Stick Y Position
-    n64_buffer[3] = -0x80 + gc_status.stick_y;
+    n64_buffer[3] = -zero_y + gc_status.stick_y;
 
     // Zero out least significant bits. Frequently, the 64 would sense small
     // movements when the control stick was neutral. This, after some trial
     // and error, seems to make it feel more natural.
+    /*
     n64_buffer[2] &= 0xF0;
     n64_buffer[3] &= 0xF0;
+    */
 }
 
 /**
