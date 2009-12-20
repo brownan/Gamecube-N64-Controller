@@ -196,10 +196,10 @@ void gc_to_64()
     n64_buffer[0] |= (gc_status.data2 & 0x02) >> 1; // D pad right
     n64_buffer[0] |= (gc_status.data2 & 0x01) << 1; // D pad left
 
-    // Second byte:
+    // Second byte to N64 should contain:
     // 0, 0, L, R, Cup, Cdown, Cleft, Cright
     //n64_buffer[1] |= (gc_status.data2 & 0x10) << 1; // Z -> L (who uses N64's L?)
-    n64_buffer[0] |= (gc_status.data2 & 0x10) << 1; // Z -> Z
+    n64_buffer[0] |= (gc_status.data2 & 0x10) << 1; // Z -> Z (changed to map Z to Z)
     n64_buffer[1] |= (gc_status.data2 & 0x20) >> 1; // R -> R
 
     // L and R pressed if the pressure sensitive button crosses
@@ -245,10 +245,11 @@ void gc_to_64()
     // Additionally, the 64 controllers are relative. Whatever stick position
     // it's in when it's powered on is what it reports as 0.
     // Gamecube controllers, on the other hand, are absolute. No matter what
-    // position the stick is in when it's powered on, it doesn't matter. However,
-    // due to (I'm guessing) variations in exactly what 0 is from controller to
-    // controller, the gamecube still sets a 0 value per controller when they're
-    // plugged in. We need to emulate this functionality.
+    // position the stick is in when it's powered on, it doesn't matter.
+    // However, due to (I'm guessing) variations in exactly what neutral is
+    // from controller to controller, the gamecube still sets a center value
+    // per controller when they're plugged in. We need to emulate this
+    // functionality. This is done in setup() when zero_x and zero_y are set
     //
     //
     // Also, evidentially, the gamecube controllers can have a variation of 2
@@ -260,14 +261,6 @@ void gc_to_64()
     
     // Fourth byte: Control Stick Y Position
     n64_buffer[3] = -zero_y + gc_status.stick_y;
-
-    // Zero out least significant bits. Frequently, the 64 would sense small
-    // movements when the control stick was neutral. This, after some trial
-    // and error, seems to make it feel more natural.
-    /*
-    n64_buffer[2] &= 0xF0;
-    n64_buffer[3] &= 0xF0;
-    */
 }
 
 /**
