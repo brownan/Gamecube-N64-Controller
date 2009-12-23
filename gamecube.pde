@@ -3,6 +3,26 @@
  * by Andrew Brown
  */
 
+/**
+ * To use, hook up the following to the Arduino Duemilanove:
+ * Digital I/O 2: Gamecube controller serial line
+ * Digital I/O 8: N64 serial line
+ * All appropriate grounding and power lines
+ * A 1K resistor to bridge digital I/O 2 and the 3.3V supply
+ *
+ * The pin-out for the N64 and Gamecube wires can be found here:
+ * http://svn.navi.cx/misc/trunk/wasabi/devices/cube64/hardware/cube64-basic.pdf
+ * Note: that diagram is not for this project, but for a similar project which
+ * uses a PIC microcontroller. However, the diagram does describe the pinouts
+ * of the gamecube and N64 wires.
+ *
+ * Also note: the N64 supplies a 3.3 volt line, but I don't plug that into
+ * anything.  The arduino can't run off of that many volts, it needs more, so
+ * it's powered externally. Additionally, the arduino has its own 3.3 volt
+ * supply that I use to power the Gamecube controller. Therefore, only two lines
+ * from the N64 are used.
+ */
+
 /*
  Copyright (c) 2009 Andrew Brown
 
@@ -257,10 +277,20 @@ void gc_to_64()
     // noting it here.
     
     // Third byte: Control Stick X position
+#if 0
     n64_buffer[2] = -zero_x + gc_status.stick_x;
+#else
+    // This code applies a slight curve to the input mappings for the X
+    // stick. It makes it feel more natural in games like perfect dark.
+    // To see what this does illustrated, put this line into gnuplot:
+    // plot [-128: 128] x, x**3 * 0.000031 + x/2
+    long int x_stick = -zero_x + gc_status.stick_x;
+    n64_buffer[2] = x_stick*x_stick*x_stick * 0.000031 + x_stick * 0.5;
+#endif
     
     // Fourth byte: Control Stick Y Position
     n64_buffer[3] = -zero_y + gc_status.stick_y;
+
 }
 
 /**
