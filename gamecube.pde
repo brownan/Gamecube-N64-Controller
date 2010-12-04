@@ -276,20 +276,23 @@ void gc_to_64()
     // or 3 units for their idle position. The 64 may not care, but I'm just
     // noting it here.
     
-    // Third byte: Control Stick X position
 #if 0
+    // Third byte: Control Stick X position
     n64_buffer[2] = -zero_x + gc_status.stick_x;
+    // Fourth byte: Control Stick Y Position
+    n64_buffer[3] = -zero_y + gc_status.stick_y;
 #else
-    // This code applies a slight curve to the input mappings for the X
+    // This code applies a slight curve to the input mappings for the
     // stick. It makes it feel more natural in games like perfect dark.
     // To see what this does illustrated, put this line into gnuplot:
     // plot [-128: 128] x, x**3 * 0.000031 + x/2
-    long int x_stick = -zero_x + gc_status.stick_x;
-    n64_buffer[2] = x_stick*x_stick*x_stick * 0.000031 + x_stick * 0.5;
+    long int stick = -zero_x + gc_status.stick_x;
+    n64_buffer[2] = stick*stick*stick * 0.000031 + stick * 0.5;
+
+    stick = -zero_y + gc_status.stick_y;
+    n64_buffer[3] = stick*stick*stick * 0.000031 + stick * 0.5;
 #endif
     
-    // Fourth byte: Control Stick Y Position
-    n64_buffer[3] = -zero_y + gc_status.stick_y;
 
 }
 
