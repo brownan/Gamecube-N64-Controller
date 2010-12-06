@@ -85,7 +85,7 @@ The GC controller cord had 6 wires: +5V, +3.3V, data, 2x ground, and one unused 
 
 5. N/C (black) - don't connect
 
-6. +3.3V (orange) - connect to Arudino +3.3V supply
+6. +3.3V (orange) - connect to Arduino +3.3V supply
 
 The internal wire colors may vary from the ones listed here. Remember, I
 spliced some third party GC cables I got off eBay, so I wouldn't be surprised
@@ -93,7 +93,7 @@ if the wire colors were not the same as an official GC controller. Verify the
 colors match the actual pin-out.
 
 Also, as you can see, the Arduino provides power to the controller: 3.3V to the
-circuits, and 5V for the rumble. The Arudino needs its own power supplied to
+circuits, and 5V for the rumble. The Arduino needs its own power supplied to
 it, either via USB or an external power brick. The N64 doesn't provide enough
 power for the Arduino.
 
