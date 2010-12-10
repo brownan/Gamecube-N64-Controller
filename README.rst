@@ -138,7 +138,7 @@ mapping these buttons. I like to map them to C-down and C-left respectively for
 games like Starfox where those buttons are more significant. For something like
 Perfect Dark where C-left and C-right strafe, I map X and Y to those instead.
 
-You can go to around like 235 in ``gamecube.pde`` to configure the mapping. Try
+You can go to around line 235 in ``gamecube.pde`` to configure the mapping. Try
 uncommenting the mapping for X -> Cdown and comment out the line for X ->
 Cright if you'd prefer that mapping.
 
