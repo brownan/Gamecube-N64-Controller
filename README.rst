@@ -203,3 +203,12 @@ Resources
 .. _Nintendo 64 Controller Protocol information: http://www.mixdown.ca/n64dev/
 .. _N64/Gamecube to USB adapter Project: http://www.raphnet.net/electronique/gc_n64_usb/index_en.php
 .. _N64 to GameCube conversion project: http://www.raphnet.net/electronique/x2wii/index_en.php
+
+See Also
+========
+Since this project hasn't been updated in a while, check out NicoHood's `Nintendo`_ project, and the related `HID`_ project
+for a more polished library for connecting gamecube controllers to the Arduino and to the computer.
+
+.. _Nintendo: https://github.com/NicoHood/Nintendo
+.. _HID: https://github.com/NicoHood/HID
+
