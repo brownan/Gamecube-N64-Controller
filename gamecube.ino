@@ -92,7 +92,8 @@ unsigned char zero_y;
 unsigned char n64_buffer[33];
 
 void gc_send(unsigned char *buffer, char length);
-void gc_get();
+int gc_get();
+void init_gc_controller();
 void print_gc_status();
 void translate_raw_data();
 void gc_to_64();
@@ -102,10 +103,11 @@ void get_n64_command();
 
 void setup()
 {
-  Serial.begin(9600);
+  Serial.begin(115200);
 
   Serial.println();
   Serial.println("Code has started!");
+  delay(100);
 
   // Status LED
   digitalWrite(13, LOW);
@@ -120,6 +122,31 @@ void setup()
   digitalWrite(N64_PIN, LOW);
   pinMode(N64_PIN, INPUT);
 
+  init_gc_controller();
+
+  do {
+      // Query for the gamecube controller's status. We do this
+      // to get the 0 point for the control stick.
+      unsigned char command[] = {0x40, 0x03, 0x00};
+      gc_send(command, 3);
+      // read in data and dump it to gc_raw_dump
+      gc_get();
+      interrupts();
+      translate_raw_data();
+      zero_x = gc_status.stick_x;
+      zero_y = gc_status.stick_y;
+      Serial.print("GC zero point read: ");
+      Serial.print(zero_x, DEC);
+      Serial.print(", ");
+      Serial.println(zero_y, DEC);
+      
+      delay(100);
+  } while (zero_x == 0 || zero_y == 0);
+  
+}
+
+void init_gc_controller()
+{
   // Initialize the gamecube controller by sending it a null byte.
   // This is unnecessary for a standard controller, but is required for the
   // Wavebird.
@@ -137,18 +164,6 @@ void setup()
       if (!GC_QUERY)
           x = 0;
   }
-
-  // Query for the gamecube controller's status. We do this
-  // to get the 0 point for the control stick.
-  unsigned char command[] = {0x40, 0x03, 0x00};
-  gc_send(command, 3);
-  // read in data and dump it to gc_raw_dump
-  gc_get();
-  interrupts();
-  translate_raw_data();
-  zero_x = gc_status.stick_x;
-  zero_y = gc_status.stick_y;
-  
 }
 
 void translate_raw_data()
@@ -276,7 +291,7 @@ void gc_to_64()
     // or 3 units for their idle position. The 64 may not care, but I'm just
     // noting it here.
     
-#if 0
+#if 1
     // Third byte: Control Stick X position
     n64_buffer[2] = -zero_x + gc_status.stick_x;
     // Fourth byte: Control Stick Y Position
@@ -544,7 +559,7 @@ inner_loop:
 
 }
 
-void gc_get()
+int gc_get()
 {
     // listen for the expected 8 bytes of data back from the controller and
     // blast it out to the gc_raw_dump array, one bit per byte for extra speed.
@@ -562,7 +577,9 @@ read_loop:
     // wait for line to go low
     while (GC_QUERY) {
         if (!--timeout)
-            return;
+            // doesn't go low? maybe it's disconnected. Return a 0 indicating a
+            // problem
+            return 0;
     }
     // wait approx 2us and poll the line
     asm volatile (
@@ -577,17 +594,19 @@ read_loop:
     ++bitbin;
     --bitcount;
     if (bitcount == 0)
-        return;
+        // this is the main exit point for this function
+        return 1;
 
     // wait for line to go high again
     // it may already be high, so this should just drop through
     timeout = 0x3f;
     while (!GC_QUERY) {
         if (!--timeout)
-            return;
+            return 0;
     }
     goto read_loop;
 
+    return 1;
 }
 
 void print_gc_status()
@@ -644,7 +663,7 @@ void print_gc_status()
 bool rumble = false;
 void loop()
 {
-    int i;
+    int i, status;
     unsigned char data, addr;
 
     // clear out incomming raw data buffer
@@ -662,21 +681,35 @@ void loop()
     }
 
     // turn on the led, so we can visually see things are happening
-    digitalWrite(13, HIGH);
+    digitalWrite(13, LOW);
     // don't want interrupts getting in the way
     noInterrupts();
     // send those 3 bytes
     gc_send(command, 3);
     // read in data and dump it to gc_raw_dump
-    gc_get();
+    status = gc_get();
     // end of time sensitive code
     interrupts();
-    digitalWrite(13, LOW);
+    digitalWrite(13, HIGH);
 
-    // translate the data in gc_raw_dump to something useful
-    translate_raw_data();
-    // Now translate /that/ data to the n64 byte string
-    gc_to_64();
+    if (status == 0) {
+        // problem with getting the gamecube controller status. Maybe it's unplugged?
+        // set a neutral N64 string
+        Serial.print(millis(), DEC);
+        Serial.println(" | GC controller read error. Trying to re-initialize");
+        memset(n64_buffer, 0, sizeof(n64_buffer));
+        memset(&gc_status, 0, sizeof(gc_status));
+        gc_status.stick_x = zero_x;
+        gc_status.stick_y = zero_y;
+        // this may not work if the controller isn't plugged in, but if it
+        // fails we'll try again next loop
+        init_gc_controller();
+    } else {
+        // translate the data in gc_raw_dump to something useful
+        translate_raw_data();
+        // Now translate /that/ data to the n64 byte string
+        gc_to_64();
+    }
 
     // Wait for incomming 64 command
     // this will block until the N64 sends us a command
@@ -784,6 +817,15 @@ void loop()
 
     // DEBUG: print it
     //print_gc_status();
+    Serial.print(millis(), DEC);
+    Serial.print(" | GC stick: ");
+    Serial.print(gc_status.stick_x, DEC);
+    Serial.print(",");
+    Serial.print(gc_status.stick_y, DEC);
+    Serial.print("  To N64: ");
+    Serial.print(-zero_x + gc_status.stick_x, DEC);
+    Serial.print(",");
+    Serial.println(-zero_y + gc_status.stick_y, DEC);
   
 }
 
