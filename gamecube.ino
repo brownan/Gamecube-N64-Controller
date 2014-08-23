@@ -64,8 +64,9 @@
 #define N64_LOW DDRB |= 0x01
 #define N64_QUERY (PINB & 0x01)
 
-// 8 bytes of data that we get from the controller
-struct {
+// 8 bytes of data that we get from the controller. This is a global
+// variable (not a struct definition)
+static struct {
     // bits: 0, 0, 0, start, y, x, b, a
     unsigned char data1;
     // bits: 1, L, R, Z, Dup, Ddown, Dright, Dleft
@@ -132,7 +133,6 @@ void setup()
       // read in data and dump it to gc_raw_dump
       gc_get();
       interrupts();
-      translate_raw_data();
       zero_x = gc_status.stick_x;
       zero_y = gc_status.stick_y;
       Serial.print("GC zero point read: ");
@@ -141,6 +141,9 @@ void setup()
       Serial.println(zero_y, DEC);
       Serial.flush();
       
+      // some crappy/broken controllers seem to give bad readings
+      // occasionally. This is a cheap hack to keep reading the
+      // controller until we get a reading that is less erroneous.
   } while (zero_x == 0 || zero_y == 0);
   
 }
@@ -169,7 +172,7 @@ void init_gc_controller()
 void translate_raw_data()
 {
     // The get_gc_status function sloppily dumps its data 1 bit per byte
-    // into the get_status_extended char array. It's our job to go through
+    // into the gc_raw_dump char array. It's our job to go through
     // that and put each piece neatly into the struct gc_status
     int i;
     memset(&gc_status, 0, sizeof(gc_status));
@@ -321,8 +324,6 @@ void gc_send(unsigned char *buffer, char length)
     // Send these bytes
     char bits;
     
-    bool bit;
-
     // This routine is very carefully timed by examining the assembly output.
     // Do not change any statements, it could throw the timings off
     //
@@ -442,8 +443,6 @@ void n64_send(unsigned char *buffer, char length, bool wide_stop)
     // Send these bytes
     char bits;
     
-    bool bit;
-
     // This routine is very carefully timed by examining the assembly output.
     // Do not change any statements, it could throw the timings off
     //
@@ -567,11 +566,13 @@ int gc_get()
     // it into the gc_status struct.
     asm volatile (";Starting to listen");
     unsigned char timeout;
-    char bitcount = 64;
-    char *bitbin = gc_raw_dump;
+    char bitcount = 0;
 
-    // Again, using gotos here to make the assembly more predictable and
-    // optimization easier (please don't kill me)
+    // treat the 8 byte struct gc_status as a raw char array.
+    unsigned char *bitbin = (unsigned char*) &gc_status;
+
+    // using gotos instead of loops to make the assembly more predictable and
+    // optimization easier
 read_loop:
     timeout = 0x3f;
     // wait for line to go low
@@ -581,7 +582,7 @@ read_loop:
             // problem
             return 0;
     }
-    // wait approx 2us and poll the line
+    // wait approx 2µs and poll the line
     asm volatile (
                   "nop\nnop\nnop\nnop\nnop\n"  
                   "nop\nnop\nnop\nnop\nnop\n"  
@@ -590,15 +591,19 @@ read_loop:
                   "nop\nnop\nnop\nnop\nnop\n"  
                   "nop\nnop\nnop\nnop\nnop\n"  
             );
-    *bitbin = GC_QUERY;
-    ++bitbin;
-    --bitcount;
-    if (bitcount == 0)
+    *bitbin = (*bitbin << 1) | (GC_QUERY ? 1 : 0);
+    ++bitcount;
+    if (bitcount == 64)
         // this is the main exit point for this function
         return 1;
+    else if (bitcount % 8 == 0) {
+        bitbin++;
+    }
 
     // wait for line to go high again
-    // it may already be high, so this should just drop through
+    // it may already be high, so this should just drop through.
+    // (the only danger is if the above instructions took more than 3µs or so
+    // and we missed the line going high AND back low)
     timeout = 0x3f;
     while (!GC_QUERY) {
         if (!--timeout)
@@ -611,7 +616,6 @@ read_loop:
 
 void print_gc_status()
 {
-    int i;
     Serial.println();
     Serial.print("Start: ");
     Serial.println(gc_status.data1 & 0x10 ? 1:0);
@@ -663,7 +667,7 @@ void print_gc_status()
 bool rumble = false;
 void loop()
 {
-    int i, status;
+    int status;
     unsigned char data, addr;
 
     // clear out incomming raw data buffer
@@ -706,9 +710,7 @@ void loop()
         // fails we'll try again next loop
         init_gc_controller();
     } else {
-        // translate the data in gc_raw_dump to something useful
-        translate_raw_data();
-        // Now translate /that/ data to the n64 byte string
+        // translate the data to the n64 byte string
         gc_to_64();
     }
 
@@ -858,7 +860,6 @@ void get_n64_command()
     char *bitbin = n64_raw_dump;
     int idle_wait;
 
-func_top:
     n64_command = 0;
 
     bitcount = 8;
@@ -920,9 +921,6 @@ read_more:
                 // get the last (stop) bit
                 bitcount = 1;
                 break;
-            //default:
-            //    Serial.println(n64_command, HEX);
-            //    goto func_top;
         }
 
         // make sure the line is high. Hopefully we didn't already
