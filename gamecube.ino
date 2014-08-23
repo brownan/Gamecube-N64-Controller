@@ -107,7 +107,7 @@ void setup()
 
   Serial.println();
   Serial.println("Code has started!");
-  delay(100);
+  Serial.flush();
 
   // Status LED
   digitalWrite(13, LOW);
@@ -139,8 +139,8 @@ void setup()
       Serial.print(zero_x, DEC);
       Serial.print(", ");
       Serial.println(zero_y, DEC);
+      Serial.flush();
       
-      delay(100);
   } while (zero_x == 0 || zero_y == 0);
   
 }
@@ -697,6 +697,7 @@ void loop()
         // set a neutral N64 string
         Serial.print(millis(), DEC);
         Serial.println(" | GC controller read error. Trying to re-initialize");
+        Serial.flush();
         memset(n64_buffer, 0, sizeof(n64_buffer));
         memset(&gc_status, 0, sizeof(gc_status));
         gc_status.stick_x = zero_x;
@@ -811,12 +812,18 @@ void loop()
             //Serial.println(data, HEX);
             break;
 
+        default:
+            Serial.print(millis(), DEC);
+            Serial.println(" | Unknown command received!!");
+            break;
+
     }
 
     interrupts();
 
     // DEBUG: print it
     //print_gc_status();
+    /*
     Serial.print(millis(), DEC);
     Serial.print(" | GC stick: ");
     Serial.print(gc_status.stick_x, DEC);
@@ -826,6 +833,8 @@ void loop()
     Serial.print(-zero_x + gc_status.stick_x, DEC);
     Serial.print(",");
     Serial.println(-zero_y + gc_status.stick_y, DEC);
+    Serial.flush();
+    */
   
 }
 
