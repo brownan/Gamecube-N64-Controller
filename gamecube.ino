@@ -519,9 +519,7 @@ inner_loop:
 static int gc_get()
 {
     // listen for the expected 8 bytes of data back from the controller and
-    // blast it out to the gc_raw_dump array, one bit per byte for extra speed.
-    // Afterwards, call translate_raw_data() to interpret the raw data and pack
-    // it into the gc_status struct.
+    // and pack it into the gc_status struct.
     asm volatile (";Starting to listen");
     noInterrupts();
 
