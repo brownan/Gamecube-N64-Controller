@@ -78,27 +78,25 @@ static struct {
     unsigned char left;
     unsigned char right;
 } gc_status;
-char gc_raw_dump[65]; // 1 received bit per byte
-char n64_raw_dump[281]; // maximum recv is 1+2+32 bytes + 1 bit
+static char n64_raw_dump[281]; // maximum recv is 1+2+32 bytes + 1 bit
 // n64_raw_dump does /not/ include the command byte. That gets pushed into
 // n64_command:
-unsigned char n64_command;
+static unsigned char n64_command;
 
 // Zero points for the GC controller stick
-unsigned char zero_x;
-unsigned char zero_y;
+static unsigned char zero_x;
+static unsigned char zero_y;
 
 // bytes to send to the 64
 // maximum we'll need to send is 33, 32 for a read request and 1 CRC byte
-unsigned char n64_buffer[33];
+static unsigned char n64_buffer[33];
 
-void gc_send(unsigned char *buffer, char length);
-int gc_get();
-void init_gc_controller();
-void print_gc_status();
-void translate_raw_data();
-void gc_to_64();
-void get_n64_command();
+static void gc_send(unsigned char *buffer, char length);
+static int gc_get();
+static void init_gc_controller();
+static void print_gc_status();
+static void gc_to_64();
+static void get_n64_command();
 
 #include "crc_table.h"
 
@@ -148,7 +146,7 @@ void setup()
   
 }
 
-void init_gc_controller()
+static void init_gc_controller()
 {
   // Initialize the gamecube controller by sending it a null byte.
   // This is unnecessary for a standard controller, but is required for the
@@ -169,53 +167,13 @@ void init_gc_controller()
   }
 }
 
-void translate_raw_data()
-{
-    // The get_gc_status function sloppily dumps its data 1 bit per byte
-    // into the gc_raw_dump char array. It's our job to go through
-    // that and put each piece neatly into the struct gc_status
-    int i;
-    memset(&gc_status, 0, sizeof(gc_status));
-    // line 1
-    // bits: 0, 0, 0, start, y, x, b a
-    for (i=0; i<8; i++) {
-        gc_status.data1 |= gc_raw_dump[i] ? (0x80 >> i) : 0;
-    }
-    // line 2
-    // bits: 1, l, r, z, dup, ddown, dright, dleft
-    for (i=0; i<8; i++) {
-        gc_status.data2 |= gc_raw_dump[8+i] ? (0x80 >> i) : 0;
-    }
-    // line 3
-    // bits: joystick x value
-    // These are 8 bit values centered at 0x80 (128)
-    for (i=0; i<8; i++) {
-        gc_status.stick_x |= gc_raw_dump[16+i] ? (0x80 >> i) : 0;
-    }
-    for (i=0; i<8; i++) {
-        gc_status.stick_y |= gc_raw_dump[24+i] ? (0x80 >> i) : 0;
-    }
-    for (i=0; i<8; i++) {
-        gc_status.cstick_x |= gc_raw_dump[32+i] ? (0x80 >> i) : 0;
-    }
-    for (i=0; i<8; i++) {
-        gc_status.cstick_y |= gc_raw_dump[40+i] ? (0x80 >> i) : 0;
-    }
-    for (i=0; i<8; i++) {
-        gc_status.left |= gc_raw_dump[48+i] ? (0x80 >> i) : 0;
-    }
-    for (i=0; i<8; i++) {
-        gc_status.right |= gc_raw_dump[56+i] ? (0x80 >> i) : 0;
-    }
-}
-
 /**
  * Reads from the gc_status struct and builds a 32 bit array ready to send to
  * the N64 when it queries us.  This is stored in n64_buffer[]
  * This function is where the translation happens from gamecube buttons to N64
  * buttons
  */
-void gc_to_64()
+static void gc_to_64()
 {
     // clear it out
     memset(n64_buffer, 0, sizeof(n64_buffer));
@@ -319,7 +277,7 @@ void gc_to_64()
  * length must be at least 1
  * Oh, it destroys the buffer passed in as it writes it
  */
-void gc_send(unsigned char *buffer, char length)
+static void gc_send(unsigned char *buffer, char length)
 {
     // Send these bytes
     char bits;
@@ -437,7 +395,7 @@ inner_loop:
  * output being altered by passing some kind of parameter in
  * (read: I'm lazy... it probably would have worked)
  */
-void n64_send(unsigned char *buffer, char length, bool wide_stop)
+static void n64_send(unsigned char *buffer, char length, bool wide_stop)
 {
     asm volatile (";Starting N64 Send Routine");
     // Send these bytes
@@ -558,63 +516,113 @@ inner_loop:
 
 }
 
-int gc_get()
+static int gc_get()
 {
     // listen for the expected 8 bytes of data back from the controller and
     // blast it out to the gc_raw_dump array, one bit per byte for extra speed.
     // Afterwards, call translate_raw_data() to interpret the raw data and pack
     // it into the gc_status struct.
     asm volatile (";Starting to listen");
-    unsigned char timeout;
-    char bitcount = 0;
+    noInterrupts();
 
     // treat the 8 byte struct gc_status as a raw char array.
     unsigned char *bitbin = (unsigned char*) &gc_status;
 
-    // using gotos instead of loops to make the assembly more predictable and
-    // optimization easier
-read_loop:
-    timeout = 0x3f;
-    // wait for line to go low
-    while (GC_QUERY) {
-        if (!--timeout)
-            // doesn't go low? maybe it's disconnected. Return a 0 indicating a
-            // problem
-            return 0;
-    }
-    // wait approx 2µs and poll the line
+    unsigned char retval;
+
     asm volatile (
-                  "nop\nnop\nnop\nnop\nnop\n"  
-                  "nop\nnop\nnop\nnop\nnop\n"  
-                  "nop\nnop\nnop\nnop\nnop\n"  
-                  "nop\nnop\nnop\nnop\nnop\n"  
-                  "nop\nnop\nnop\nnop\nnop\n"  
-                  "nop\nnop\nnop\nnop\nnop\n"  
+            "; START OF MANUAL ASSEMBLY BLOCK\n"
+            // r25 is our bit counter. We read 64 bits and increment the byte
+            // pointer every 8 bits
+            "ldi r25,lo8(0)\n"
+            // read in the first byte of the gc_status struct
+            "ld r23,Z\n"
+            // default exit value is 1 (success)
+            "ldi %[retval],lo8(1)\n"
+
+            // Top of the main read loop label
+            "L%=_read_loop:\n"
+
+            // This first spinloop waits for the line to go low. It loops 64
+            // times before it gives up and returns
+            "ldi r24,lo8(64)\n" // r24 is the timeout counter
+            "L%=_1:\n"
+            "sbis 0x9,2\n" // reg 9 bit 2 is PIND2, or arduino I/O 2
+            "rjmp L%=_2\n" // line is low. jump to below
+            // the following happens if the line is still high
+            "subi r24,lo8(1)\n"
+            "brne L%=_1\n" // loop if the counter isn't 0
+            // timeout? set output to 0 indicating failure and jump to
+            // the end
+            "ldi %[retval],lo8(0)\n"
+            "rjmp L%=_exit\n"
+            "L%=_2:\n"
+
+            // Next block. The line has just gone low. Wait approx 2µs
+            // each cycle is 1/16 µs on a 16Mhz processor
+            "nop\nnop\nnop\nnop\nnop\n"
+            "nop\nnop\nnop\nnop\nnop\n"
+            "nop\nnop\nnop\nnop\nnop\n"
+            "nop\nnop\nnop\nnop\nnop\n"
+            "nop\nnop\nnop\nnop\nnop\n"
+            "nop\nnop\nnop\nnop\nnop\n"
+
+            // This block left shifts the current gc_status byte in r23,
+            // and adds the current line state as the LSB
+            "lsl r23\n" // left shift
+            "sbic 0x9,2\n" // read PIND2
+            "sbr r23,lo8(1)\n" // set bit 1 in r23 if PIND2 is high
+            "st Z,r23\n" // save r23 back to memory. We technically only have
+            // to do this every 8 bits but this simplifies the branches below
+
+            // This block increments the bitcount(r25). If bitcount is 64, exit
+            // with success. If bitcount is a multiple of 8, then increment Z
+            // and load the next byte.
+            "subi r25,lo8(-1)\n" // increment bitcount
+            "cpi r25,lo8(64)\n" // == 64?
+            "breq L%=_exit\n" // jump to exit
+            "mov r24,r25\n" // copy bitcounter(r25) to r24 for tmp
+            "andi r24,lo8(7)\n" // get lower 3 bits
+            "brne L%=_3\n" // branch if not 0 (is not divisble by 8)
+            "adiw r30,1\n" // if divisible by 8, increment pointer
+            "ld r23,Z\n" // ...and load the new byte into r23
+            "L%=_3:\n"
+
+            // This next block waits for the line to go high again. again, it
+            // sets a timeout counter of 64 iterations
+            "ldi r24,lo8(64)\n" // r24 is the timeout counter
+            "L%=_4:\n"
+            "sbic 0x9,2\n" // checks PIND2
+            "rjmp L%=_read_loop\n" // line is high. ready for next loop
+            // the following happens if the line is still low
+            "subi r24,lo8(1)\n"
+            "brne L%=_4\n" // loop if the counter isn't 0
+            // timeout? set output to 0 indicating failure and fall through to
+            // the end
+            "ldi %[retval],lo8(0)\n"
+
+
+            "L%=_exit:\n"
+            ";END OF MANUAL ASSEMBLY BLOCK\n"
+            // ----------
+            // outputs:
+            : [retval] "=r" (retval),
+            // About the bitbin pointer: The "z" constraint tells the
+            // compiler to put the pointer in the Z register pair (r31:r30)
+            // The + tells the compiler that we are both reading and writing
+            // this pointer. This is important because otherwise it will
+            // allocate the same register for retval (r30).
+            "+z" (bitbin)
+            // clobbers (registers we use in the assembly for the compiler to
+            // avoid):
+            :: "r25", "r24", "r23"
             );
-    *bitbin = (*bitbin << 1) | (GC_QUERY ? 1 : 0);
-    ++bitcount;
-    if (bitcount == 64)
-        // this is the main exit point for this function
-        return 1;
-    else if (bitcount % 8 == 0) {
-        bitbin++;
-    }
 
-    // wait for line to go high again
-    // it may already be high, so this should just drop through.
-    // (the only danger is if the above instructions took more than 3µs or so
-    // and we missed the line going high AND back low)
-    timeout = 0x3f;
-    while (!GC_QUERY) {
-        if (!--timeout)
-            return 0;
-    }
-    goto read_loop;
-
-    return 1;
+    interrupts();
+    return retval;
 }
 
-void print_gc_status()
+static void print_gc_status()
 {
     Serial.println();
     Serial.print("Start: ");
@@ -662,9 +670,10 @@ void print_gc_status()
     Serial.println(gc_status.left, DEC);
     Serial.print("R:     ");
     Serial.println(gc_status.right, DEC);
+    Serial.flush();
 }
 
-bool rumble = false;
+static bool rumble = false;
 void loop()
 {
     int status;
@@ -854,7 +863,7 @@ void loop()
   * All data is raw dumped to the n64_raw_dump array, 1 bit per byte, except
   * for the command byte, which is placed all packed into n64_command
   */
-void get_n64_command()
+static void get_n64_command()
 {
     int bitcount;
     char *bitbin = n64_raw_dump;
