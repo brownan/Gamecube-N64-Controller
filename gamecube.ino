@@ -121,6 +121,7 @@ void setup()
   digitalWrite(N64_PIN, LOW);
   pinMode(N64_PIN, INPUT);
 
+  noInterrupts();
   init_gc_controller();
 
   do {
@@ -152,7 +153,6 @@ static void init_gc_controller()
   // This is unnecessary for a standard controller, but is required for the
   // Wavebird.
   unsigned char initialize = 0x00;
-  noInterrupts();
   gc_send(&initialize, 1);
 
   // Stupid routine to wait for the gamecube controller to stop
@@ -275,125 +275,137 @@ static void gc_to_64()
 /**
  * This sends the given byte sequence to the controller
  * length must be at least 1
- * Oh, it destroys the buffer passed in as it writes it
+ * hardcoded for Arduino DIO 2 and external pull-up resistor
  */
 static void gc_send(unsigned char *buffer, char length)
 {
-    // Send these bytes
-    char bits;
-    
-    // This routine is very carefully timed by examining the assembly output.
-    // Do not change any statements, it could throw the timings off
-    //
-    // We get 16 cycles per microsecond, which should be plenty, but we need to
-    // be conservative. Most assembly ops take 1 cycle, but a few take 2
-    //
-    // I use manually constructed for-loops out of gotos so I have more control
-    // over the outputted assembly. I can insert nops where it was impossible
-    // with a for loop
-    
-    asm volatile (";Starting outer for loop");
-outer_loop:
-    {
-        asm volatile (";Starting inner for loop");
-        bits=8;
-inner_loop:
-        {
-            // Starting a bit, set the line low
-            asm volatile (";Setting line to low");
-            GC_LOW; // 1 op, 2 cycles
+    asm volatile (
+            "; Start of gc_send assembly\n"
 
-            asm volatile (";branching");
-            if (*buffer >> 7) {
-                asm volatile (";Bit is a 1");
-                // 1 bit
-                // remain low for 1us, then go high for 3us
-                // nop block 1
-                asm volatile ("nop\nnop\nnop\nnop\nnop\n");
-                
-                asm volatile (";Setting line to high");
-                GC_HIGH;
+            // passed in to this block are:
+            // the Z register (r31:r30) is the buffer pointer
+            // %[length] is the register holding the length of the buffer in bytes
 
-                // nop block 2
-                // we'll wait only 2us to sync up with both conditions
-                // at the bottom of the if statement
-                asm volatile ("nop\nnop\nnop\nnop\nnop\n"  
-                              "nop\nnop\nnop\nnop\nnop\n"  
-                              "nop\nnop\nnop\nnop\nnop\n"  
-                              "nop\nnop\nnop\nnop\nnop\n"  
-                              "nop\nnop\nnop\nnop\nnop\n"  
-                              "nop\nnop\nnop\nnop\nnop\n"  
-                              );
+            // Instruction cycles are noted in parentheses
+            // branch instructions have two values, one if the branch isn't
+            // taken and one if it is
 
-            } else {
-                asm volatile (";Bit is a 0");
-                // 0 bit
-                // remain low for 3us, then go high for 1us
-                // nop block 3
-                asm volatile ("nop\nnop\nnop\nnop\nnop\n"  
-                              "nop\nnop\nnop\nnop\nnop\n"  
-                              "nop\nnop\nnop\nnop\nnop\n"  
-                              "nop\nnop\nnop\nnop\nnop\n"  
-                              "nop\nnop\nnop\nnop\nnop\n"  
-                              "nop\nnop\nnop\nnop\nnop\n"  
-                              "nop\nnop\nnop\nnop\nnop\n"  
-                              "nop\n");
+            // r25 will be the current buffer byte loaded from memory
+            // r26 will be the bit counter for the current byte. when this
+            // reaches 0, we need to decrement the length counter, and if it's
+            // not 0, load the next buffer byte and loop
+            
+            "ld r25, Z\n" // load the first byte
 
-                asm volatile (";Setting line to high");
-                GC_HIGH;
+            // This label starts the outer loop, which sends a single byte
+            ".L%=_byte_loop:\n"
+            "ldi r26,lo8(8)\n" // (1)
 
-                // wait for 1us
-                asm volatile ("; end of conditional branch, need to wait 1us more before next bit");
-                
-            }
-            // end of the if, the line is high and needs to remain
-            // high for exactly 16 more cycles, regardless of the previous
-            // branch path
+            // This label starts the inner loop, which sends a single bit
+            ".L%=_bit_loop:\n"
+            "sbi 0xa,2\n" // (2) pull the line low
 
-            asm volatile (";finishing inner loop body");
-            --bits;
-            if (bits != 0) {
-                // nop block 4
-                // this block is why a for loop was impossible
-                asm volatile ("nop\nnop\nnop\nnop\nnop\n"  
-                              "nop\nnop\nnop\nnop\n");
-                // rotate bits
-                asm volatile (";rotating out bits");
-                *buffer <<= 1;
+            // line needs to stay low for 1µs for a 1 bit, 3µs for a 0 bit
+            // this block figures out if the next bit is a 0 or a 1
+            // the strategy here is to shift the register left, then test and
+            // branch on the carry flag
+            "lsl r25\n" // (1) shift left. MSB goes into carry bit of status reg
+            "brcc .L%=_zero_bit\n" // (1/2) branch if carry is set
 
-                goto inner_loop;
-            } // fall out of inner loop
-        }
-        asm volatile (";continuing outer loop");
-        // In this case: the inner loop exits and the outer loop iterates,
-        // there are /exactly/ 16 cycles taken up by the necessary operations.
-        // So no nops are needed here (that was lucky!)
-        --length;
-        if (length != 0) {
-            ++buffer;
-            goto outer_loop;
-        } // fall out of outer loop
-    }
+            
+            // this block is the timing for a 1 bit (1µs low, 3µs high)
+            // Stay low for 16 - 2 (above lsl,brcc) - 2 (below cbi) = 12 cycles
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\n" // (2)
+            "cbi 0xa,2\n" // (2) set the line high again
+            // Now stay low for 2µs of the 3µs to sync up with the branch below
+            // 2*16 - 2 (for the rjmp) = 30 cycles
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "rjmp .L%=_finish_bit\n" // (2)
 
-    // send a single stop (1) bit
-    // nop block 5
-    asm volatile ("nop\nnop\nnop\nnop\n");
-    GC_LOW;
-    // wait 1 us, 16 cycles, then raise the line 
-    // 16-2=14
-    // nop block 6
-    asm volatile ("nop\nnop\nnop\nnop\nnop\n"
-                  "nop\nnop\nnop\nnop\nnop\n"  
-                  "nop\nnop\nnop\nnop\n");
-    GC_HIGH;
+
+            // this block is the timing for a 0 bit (3µs low, 1µs high)
+            // Need to go high in 3*16 - 3 (above lsl,brcc) - 2 (below cbi) = 43 cycles
+            ".L%=_zero_bit:\n"
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\n" // (3)
+            "cbi 0xa,2\n" // (2) set the line high again
+
+            // The two branches meet up here.
+            // We are now *exactly* 3µs into the sending of a bit, and the line
+            // is high again. We have 1µs to do the looping and iteration
+            // logic.
+            ".L%=_finish_bit:\n"
+            "subi r26,1\n" // (1) subtract 1 from our bit counter
+            "breq .L%=_load_next_byte\n" // (1/2) branch if we've sent all the bits of this byte
+
+            // At this point, we have more bits to send in this byte, but the
+            // line must remain high for another 1µs (minus the above
+            // instructions and the jump below and the sbi instruction at the
+            // top of the loop)
+            // 16 - 2(above) - 2 (rjmp below) - 2 (sbi after jump) = 10
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "rjmp .L%=_bit_loop\n"
+
+
+            // This block starts 3 cycles after the line goes high
+            // We need to decrement the byte counter. If it's 0, that's our exit condition.
+            // If not we need to load the next byte and go to the top of the byte loop
+            ".L%=_load_next_byte:\n"
+            "subi %[length], 1\n" // (1)
+            "breq .L%=_loop_exit\n" // (1/2) if the byte counter is 0, exit
+            "adiw r30,1\n" // (2) increment byte pointer
+            "ld r25, Z\n" // (2) load the next byte
+            // delay block:
+            // needs to go high after 1µs or 16 cycles
+            // 16 - 9 (above) - 2 (the jump itself) - 3 (after jump) = 2
+            "nop\nnop\n" // (2)
+            "rjmp .L%=_byte_loop\n" // (2)
+
+
+            // Loop exit
+            ".L%=_loop_exit:\n"
+
+            // final task: send the stop bit, which is a 1 (1µs low 3µs high)
+            // the line goes low in:
+            // 16 - 6 (above since line went high) - 2 (sbi instruction below) = 8 cycles
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\n" // (3)
+            "sbi 0xa,2\n" // (2) pull the line low
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\nnop\n" // (5)
+            "nop\nnop\nnop\nnop\n" // (4)
+            "cbi 0xa,2\n" // (2) set the line high again
+
+            :
+            // outputs:
+            "+z" (buffer) // (read and write)
+            :
+            // inputs:
+            [length] "r" (length)
+            :
+            // clobbers:
+                "r25", "r26"
+            );
 
 }
 /**
  * Complete copy and paste of gc_send, but with the N64
  * pin being manipulated instead.
- * I copy and pasted because I didn't want to risk the assembly
- * output being altered by passing some kind of parameter in
- * (read: I'm lazy... it probably would have worked)
  */
 static void n64_send(unsigned char *buffer, char length, bool wide_stop)
 {
@@ -516,12 +528,13 @@ inner_loop:
 
 }
 
+// Read 8 bytes from the gamecube controller
+// hardwired to read from Arduino DIO2 with external pullup resistor
 static int gc_get()
 {
     // listen for the expected 8 bytes of data back from the controller and
     // and pack it into the gc_status struct.
     asm volatile (";Starting to listen");
-    noInterrupts();
 
     // treat the 8 byte struct gc_status as a raw char array.
     unsigned char *bitbin = (unsigned char*) &gc_status;
@@ -616,7 +629,6 @@ static int gc_get()
             :: "r25", "r24", "r23"
             );
 
-    interrupts();
     return retval;
 }
 
@@ -684,8 +696,6 @@ void loop()
 
     // Command to send to the gamecube
     // The last bit is rumble, flip it to rumble
-    // yes this does need to be inside the loop, the
-    // array gets mutilated when it goes through gc_send
     unsigned char command[] = {0x40, 0x03, 0x00};
     if (rumble) {
         command[2] = 0x01;
@@ -715,7 +725,9 @@ void loop()
         gc_status.stick_y = zero_y;
         // this may not work if the controller isn't plugged in, but if it
         // fails we'll try again next loop
+        noInterrupts();
         init_gc_controller();
+        interrupts();
     } else {
         // translate the data to the n64 byte string
         gc_to_64();
