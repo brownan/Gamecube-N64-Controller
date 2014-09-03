@@ -292,8 +292,9 @@ static void gc_send(unsigned char *buffer, char length)
 
             // r25 will be the current buffer byte loaded from memory
             // r26 will be the bit counter for the current byte. when this
-            // reaches 0, we need to decrement the length counter, and if it's
-            // not 0, load the next buffer byte and loop
+            // reaches 0, we need to decrement the length counter, load
+            // the next buffer byte, and loop. (if the length counter becomes
+            // 0, that's our exit condition)
             
             "ld r25, Z\n" // load the first byte
 
@@ -310,7 +311,7 @@ static void gc_send(unsigned char *buffer, char length)
             // the strategy here is to shift the register left, then test and
             // branch on the carry flag
             "lsl r25\n" // (1) shift left. MSB goes into carry bit of status reg
-            "brcc .L%=_zero_bit\n" // (1/2) branch if carry is set
+            "brcc .L%=_zero_bit\n" // (1/2) branch if carry is cleared
 
             
             // this block is the timing for a 1 bit (1µs low, 3µs high)
@@ -319,7 +320,7 @@ static void gc_send(unsigned char *buffer, char length)
             "nop\nnop\nnop\nnop\nnop\n" // (5)
             "nop\nnop\n" // (2)
             "cbi 0xa,2\n" // (2) set the line high again
-            // Now stay low for 2µs of the 3µs to sync up with the branch below
+            // Now stay high for 2µs of the 3µs to sync up with the branch below
             // 2*16 - 2 (for the rjmp) = 30 cycles
             "nop\nnop\nnop\nnop\nnop\n" // (5)
             "nop\nnop\nnop\nnop\nnop\n" // (5)
@@ -344,6 +345,7 @@ static void gc_send(unsigned char *buffer, char length)
             "nop\nnop\nnop\n" // (3)
             "cbi 0xa,2\n" // (2) set the line high again
 
+
             // The two branches meet up here.
             // We are now *exactly* 3µs into the sending of a bit, and the line
             // is high again. We have 1µs to do the looping and iteration
@@ -362,7 +364,7 @@ static void gc_send(unsigned char *buffer, char length)
             "rjmp .L%=_bit_loop\n"
 
 
-            // This block starts 3 cycles after the line goes high
+            // This block starts 3 cycles into the last 1µs of the line being high
             // We need to decrement the byte counter. If it's 0, that's our exit condition.
             // If not we need to load the next byte and go to the top of the byte loop
             ".L%=_load_next_byte:\n"
@@ -386,10 +388,14 @@ static void gc_send(unsigned char *buffer, char length)
             "nop\nnop\nnop\nnop\nnop\n" // (5)
             "nop\nnop\nnop\n" // (3)
             "sbi 0xa,2\n" // (2) pull the line low
+            // stay low for 1µs
+            // 16 - 2 (below cbi) = 14
             "nop\nnop\nnop\nnop\nnop\n" // (5)
             "nop\nnop\nnop\nnop\nnop\n" // (5)
             "nop\nnop\nnop\nnop\n" // (4)
             "cbi 0xa,2\n" // (2) set the line high again
+
+            // just stay high. no need to wait 3µs before returning
 
             :
             // outputs:
